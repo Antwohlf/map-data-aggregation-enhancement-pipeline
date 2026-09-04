@@ -1,0 +1,13 @@
+{
+  "name": "@map-pipeline/cli",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "map-pipeline": "./src/main.ts"
+  },
+  "dependencies": {
+    "@map-pipeline/core": "*",
+    "ajv": "^8.20.0"
+  }
+}

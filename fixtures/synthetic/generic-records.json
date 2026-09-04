@@ -1,0 +1,12 @@
+{
+  "fixtureId": "synthetic-generic-records",
+  "license": "CC0-1.0",
+  "synthetic": true,
+  "records": [
+    {
+      "externalId": "synthetic-permit-1",
+      "address": "100 Example Avenue",
+      "description": "Synthetic record for transport contract tests"
+    }
+  ]
+}

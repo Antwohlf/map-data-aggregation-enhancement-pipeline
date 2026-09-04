@@ -1,0 +1,62 @@
+{
+  "synthetic-source": {
+    "id": "synthetic-source",
+    "lock": {
+      "packageName": "@map-pipeline/synthetic-source",
+      "packageVersion": "0.0.0-test",
+      "pluginApiVersion": "mapdata.pipeline/v1alpha1",
+      "integrity": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+      "configSchema": {
+        "name": "synthetic.source.config",
+        "version": 1
+      },
+      "configSchemaDigest": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+    },
+    "inputs": {},
+    "outputs": {
+      "records": {
+        "schema": {
+          "name": "synthetic.records",
+          "version": 1
+        },
+        "cardinality": "many",
+        "partitioning": "by_partition",
+        "ordering": "canonical",
+        "artifactPolicy": "required"
+      }
+    },
+    "policyBinding": "source",
+    "effects": ["artifact.read", "artifact.write"],
+    "delivery": "none"
+  },
+  "synthetic-preview-sink": {
+    "id": "synthetic-preview-sink",
+    "lock": {
+      "packageName": "@map-pipeline/synthetic-preview-sink",
+      "packageVersion": "0.0.0-test",
+      "pluginApiVersion": "mapdata.pipeline/v1alpha1",
+      "integrity": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+      "configSchema": {
+        "name": "synthetic.preview.config",
+        "version": 1
+      },
+      "configSchemaDigest": "sha256:3333333333333333333333333333333333333333333333333333333333333333"
+    },
+    "inputs": {
+      "records": {
+        "schema": {
+          "name": "synthetic.records",
+          "version": 1
+        },
+        "cardinality": "many",
+        "partitioning": "by_partition",
+        "ordering": "canonical",
+        "artifactPolicy": "required"
+      }
+    },
+    "outputs": {},
+    "policyBinding": "none",
+    "effects": ["artifact.write"],
+    "delivery": "verified_receipt"
+  }
+}

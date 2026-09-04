@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "fixtures": [
+    {
+      "path": "synthetic/generic-records.json",
+      "origin": "generated-synthetic",
+      "containsThirdPartyData": false,
+      "containsPersonalData": false,
+      "redistributionReviewed": true,
+      "license": "CC0-1.0",
+      "schema": {
+        "name": "synthetic.generic-records",
+        "version": 1
+      },
+      "transformVersion": null,
+      "legacyCommit": null,
+      "approvalStatus": "approved_synthetic",
+      "contentDigest": "sha256:7b95f0559c41e05d56ecd3781991210808bda2dbae52465c0d2b52b98a9565f4"
+    }
+  ]
+}

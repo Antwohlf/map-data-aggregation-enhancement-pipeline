@@ -1,0 +1,131 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.example.invalid/mapdata/pipeline-definition.v1alpha1.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "apiVersion",
+    "kind",
+    "metadata",
+    "profile",
+    "stages",
+    "requiredSinks",
+    "optionalSinks"
+  ],
+  "properties": {
+    "apiVersion": { "const": "mapdata.pipeline/v1alpha1" },
+    "kind": { "const": "Pipeline" },
+    "metadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "version"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "version": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "profile": { "type": "string", "minLength": 1 },
+    "stages": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/stage" }
+    },
+    "requiredSinks": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string", "minLength": 1 },
+      "uniqueItems": true
+    },
+    "optionalSinks": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "uniqueItems": true
+    }
+  },
+  "$defs": {
+    "effectClass": {
+      "enum": [
+        "network.read",
+        "artifact.read",
+        "artifact.write",
+        "state.write",
+        "evidence.write",
+        "review.write",
+        "canonical.write",
+        "public.write"
+      ]
+    },
+    "effectRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "effectClass",
+        "resourceUri",
+        "operations",
+        "maxRecords"
+      ],
+      "properties": {
+        "effectClass": { "$ref": "#/$defs/effectClass" },
+        "resourceUri": { "type": "string", "minLength": 1 },
+        "operations": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "maxRecords": { "type": "integer", "minimum": 1 },
+        "verification": { "enum": ["none", "post_read"] }
+      }
+    },
+    "resources": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "admissionGroup",
+        "maxCpuUnits",
+        "maxRssBytes",
+        "maxChildProcesses",
+        "maxWallTimeMs",
+        "maxArtifactBytes",
+        "minFreeDiskBytes"
+      ],
+      "properties": {
+        "admissionGroup": { "type": "string", "minLength": 1 },
+        "maxCpuUnits": { "type": "integer", "minimum": 0 },
+        "maxRssBytes": { "type": "integer", "minimum": 0 },
+        "maxChildProcesses": { "type": "integer", "minimum": 0 },
+        "maxWallTimeMs": { "type": "integer", "minimum": 0 },
+        "maxArtifactBytes": { "type": "integer", "minimum": 0 },
+        "minFreeDiskBytes": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "stage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "uses", "resources"],
+      "properties": {
+        "id": { "type": "string", "pattern": "^[a-z][a-z0-9-]*$" },
+        "uses": { "type": "string", "minLength": 1 },
+        "inputs": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9-]*\\.[A-Za-z][A-Za-z0-9_-]*$"
+          }
+        },
+        "sourcePolicyIds": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "with": { "type": "object" },
+        "resources": { "$ref": "#/$defs/resources" },
+        "requestedEffects": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/effectRequest" }
+        }
+      }
+    }
+  }
+}

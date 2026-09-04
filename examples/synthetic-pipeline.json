@@ -1,0 +1,68 @@
+{
+  "apiVersion": "mapdata.pipeline/v1alpha1",
+  "kind": "Pipeline",
+  "metadata": {
+    "name": "synthetic-shape-only",
+    "version": 1
+  },
+  "profile": "synthetic-test",
+  "stages": [
+    {
+      "id": "source",
+      "uses": "synthetic-source",
+      "sourcePolicyIds": ["synthetic-source-v1"],
+      "with": {
+        "fixture": "synthetic-generic-records"
+      },
+      "resources": {
+        "admissionGroup": "source-heavy",
+        "maxCpuUnits": 1,
+        "maxRssBytes": 134217728,
+        "maxChildProcesses": 1,
+        "maxWallTimeMs": 30000,
+        "maxArtifactBytes": 1048576,
+        "minFreeDiskBytes": 1073741824
+      },
+      "requestedEffects": [
+        {
+          "effectClass": "artifact.read",
+          "resourceUri": "fixture://synthetic/generic-records",
+          "operations": ["read"],
+          "maxRecords": 10
+        },
+        {
+          "effectClass": "artifact.write",
+          "resourceUri": "preview://artifacts/source",
+          "operations": ["create"],
+          "maxRecords": 10
+        }
+      ]
+    },
+    {
+      "id": "preview",
+      "uses": "synthetic-preview-sink",
+      "inputs": {
+        "records": "source.records"
+      },
+      "resources": {
+        "admissionGroup": "artifact-only",
+        "maxCpuUnits": 1,
+        "maxRssBytes": 134217728,
+        "maxChildProcesses": 1,
+        "maxWallTimeMs": 30000,
+        "maxArtifactBytes": 1048576,
+        "minFreeDiskBytes": 1073741824
+      },
+      "requestedEffects": [
+        {
+          "effectClass": "artifact.write",
+          "resourceUri": "preview://artifacts/result",
+          "operations": ["create"],
+          "maxRecords": 10
+        }
+      ]
+    }
+  ],
+  "requiredSinks": ["preview"],
+  "optionalSinks": []
+}

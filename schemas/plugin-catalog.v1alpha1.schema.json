@@ -1,0 +1,99 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.example.invalid/mapdata/plugin-catalog.v1alpha1.schema.json",
+  "type": "object",
+  "additionalProperties": { "$ref": "#/$defs/manifest" },
+  "$defs": {
+    "schemaRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "version"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "version": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "port": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "cardinality",
+        "partitioning",
+        "ordering",
+        "artifactPolicy"
+      ],
+      "properties": {
+        "schema": { "$ref": "#/$defs/schemaRef" },
+        "cardinality": { "enum": ["one", "many"] },
+        "partitioning": { "enum": ["global", "by_partition"] },
+        "ordering": { "enum": ["canonical", "irrelevant"] },
+        "artifactPolicy": {
+          "enum": ["required", "derived_only", "restricted", "forbidden"]
+        },
+        "required": { "type": "boolean" }
+      }
+    },
+    "lock": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "packageName",
+        "packageVersion",
+        "pluginApiVersion",
+        "integrity",
+        "configSchema",
+        "configSchemaDigest"
+      ],
+      "properties": {
+        "packageName": { "type": "string", "minLength": 1 },
+        "packageVersion": { "type": "string", "minLength": 1 },
+        "pluginApiVersion": { "const": "mapdata.pipeline/v1alpha1" },
+        "integrity": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+        "executableDigest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+        "configSchema": { "$ref": "#/$defs/schemaRef" },
+        "configSchemaDigest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" }
+      }
+    },
+    "manifest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "lock", "inputs", "outputs", "policyBinding", "effects", "delivery"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "lock": { "$ref": "#/$defs/lock" },
+        "inputs": {
+          "type": "object",
+          "additionalProperties": { "$ref": "#/$defs/port" }
+        },
+        "outputs": {
+          "type": "object",
+          "additionalProperties": { "$ref": "#/$defs/port" }
+        },
+        "policyBinding": { "enum": ["none", "source"] },
+        "effects": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "network.read",
+              "artifact.read",
+              "artifact.write",
+              "state.write",
+              "evidence.write",
+              "review.write",
+              "canonical.write",
+              "public.write"
+            ]
+          }
+        },
+        "delivery": { "enum": ["none", "verified_receipt"] },
+        "secretRefs": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        }
+      }
+    }
+  }
+}

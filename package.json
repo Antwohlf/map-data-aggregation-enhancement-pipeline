@@ -1,0 +1,40 @@
+{
+  "name": "map-data-aggregation-enhancement-pipeline",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Profile-driven, reusable map data aggregation and enhancement pipeline contracts.",
+  "keywords": [
+    "data-pipeline",
+    "geospatial",
+    "maps",
+    "etl"
+  ],
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Antwohlf/map-data-aggregation-enhancement-pipeline.git"
+  },
+  "homepage": "https://github.com/Antwohlf/map-data-aggregation-enhancement-pipeline#readme",
+  "bugs": {
+    "url": "https://github.com/Antwohlf/map-data-aggregation-enhancement-pipeline/issues"
+  },
+  "type": "module",
+  "engines": {
+    "node": "^22.0.0 || ^24.0.0"
+  },
+  "workspaces": [
+    "packages/*",
+    "profiles/*"
+  ],
+  "scripts": {
+    "check": "tsc --noEmit",
+    "test": "tsx --test 'packages/**/*.test.ts' 'profiles/**/*.test.ts'",
+    "validate:example": "tsx packages/cli/src/main.ts validate --definition examples/synthetic-pipeline.json --catalog examples/plugin-catalog.json",
+    "audit:public": "node scripts/audit-public-files.mjs"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.1",
+    "tsx": "^4.23.13",
+    "typescript": "^7.0.2"
+  }
+}
