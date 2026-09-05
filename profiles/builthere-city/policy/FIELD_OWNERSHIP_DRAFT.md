@@ -3,7 +3,8 @@
 Status: proposed fail-closed contract derived from the current BuildHere schema
 and ingestion code. It must be published and versioned by `builthere.city`
 before preview or apply. The owner has approved field-level overrides, legacy
-Ann Arbor mapper parity, and stored-procedure writes through PII-free views.
+Ann Arbor mapper parity, stored-procedure writes through PII-free views, and a
+distinct audited reviewer-decision event for verification changes.
 
 Every mapped field uses a tagged patch: `absent`, `set(value)`, or
 `clear(reason, authority)`. JSON null never means clear. On update, `absent` and
@@ -19,7 +20,7 @@ authority in v1. Manual overrides may explicitly set nullable fields to null.
 | `updatedAt` | system | Database create time | Only when effective business data changes | Only when effective business data changes | Replay/no-op preserves it |
 | `city`, `sourceType`, `sourceId` | identity | Exact source identity | Never | Never | Missing/mismatched identity is quarantined; no cross-source/address merge |
 | `title`, `address`, `category`, `scale`, `phase` | source with override | Exact legacy mapper value | Apply non-null value unless overridden | Append-only typed override; no null clear | Active override suppresses source proposal |
-| `verification` | reviewed decision | Legacy source value (`VERIFIED` official, `RUMOR` community) | Source cannot replace a later decision | Generic override is disabled pending an owner decision | Conflicting assertion is quarantined |
+| `verification` | audited reviewer decision | Legacy source value (`VERIFIED` official, `RUMOR` community) | Source cannot replace a later decision | Only a distinct append-only reviewer-decision event may change it; generic field overrides are forbidden | Missing audit identity, stale revision, or a conflicting assertion is quarantined |
 | `description`, `neighborhood`, `zipCode`, `sourceUrl`, `estimatedCost`, `numUnits`, `numStories`, `permitType`, `zoningDesignation`, `submittedDate`, `approvedDate`, `completedDate` | source with override | Mapper value or SQL NULL | Non-null value unless overridden; null/absent is no-op | Append-only typed override, including explicit null | Invalid type/range/date is quarantined |
 | `latitude`, `longitude` | source with atomic manual location override | Map each coordinate independently; either may be SQL NULL | Apply each non-null coordinate independently unless the location is manually overridden; null/absent is a no-op | Set/clear the pair as one atomic manual `location` override | Partial source coordinates preserve legacy behavior; a partial manual location operation is rejected |
 | `addressHash` | derived | Versioned common algorithm over effective `address` | Recompute atomically with effective address | Never independently editable | Supplied mismatch is quarantined |
@@ -67,6 +68,7 @@ writes an immutable receipt, and moves to `PUBLISHED` in one transaction.
 Replay returns the existing receipt. Submitter name/email never enter the view,
 event, command, artifact, or logs.
 
-Before the first apply, audit production Projects for edits made outside the
-current application. Any such changes must be reviewed and seeded as override
-events; otherwise the initial override set is empty.
+The owner reported on 2026-09-05 that no production Projects were manually
+edited outside repository-controlled workflows, so no override seed import is
+planned. A read-only pre-apply drift audit remains a cutover gate; any contrary
+finding pauses apply until it is reviewed and represented as an override event.
