@@ -58,7 +58,7 @@
     "manifest": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["id", "lock", "inputs", "outputs", "policyBinding", "effects", "delivery"],
+      "required": ["id", "lock", "inputs", "outputs", "sourceAdapter", "effects", "delivery"],
       "properties": {
         "id": { "type": "string", "minLength": 1 },
         "lock": { "$ref": "#/$defs/lock" },
@@ -70,7 +70,12 @@
           "type": "object",
           "additionalProperties": { "$ref": "#/$defs/port" }
         },
-        "policyBinding": { "enum": ["none", "source"] },
+        "sourceAdapter": {
+          "oneOf": [
+            { "type": "string", "minLength": 1 },
+            { "type": "null" }
+          ]
+        },
         "effects": {
           "type": "array",
           "uniqueItems": true,

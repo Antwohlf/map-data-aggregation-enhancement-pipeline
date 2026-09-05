@@ -23,7 +23,7 @@ const manifest: StagePluginManifest = {
   },
   inputs: {},
   outputs: {},
-  policyBinding: "none",
+  sourceAdapter: null,
   effects: ["artifact.write", "public.write"],
   delivery: "verified_receipt",
 };

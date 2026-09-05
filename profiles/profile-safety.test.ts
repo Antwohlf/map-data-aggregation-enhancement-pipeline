@@ -30,8 +30,11 @@ test("all scaffold profiles are inert and have no write authority", () => {
       assert.equal(source.policyStatus, "pending");
       assert.equal(source.artifactPolicy, "forbidden");
       assert.equal(source.termsRef, null);
+      assert.equal(source.attributionRef, null);
       assert.equal(source.retentionDays, null);
-      assert.deepEqual(source.upstreamTermsRefs, []);
+      assert.deepEqual(source.resourceUris, []);
+      assert.deepEqual(source.allowedSchemas, []);
+      assert.deepEqual(source.upstreamTerms, []);
       assert(source.provisionalRetention.rawMaxDays <= 30);
       assert(source.provisionalRetention.derivedMaxDays <= 30);
       assert(source.provisionalRetention.reviewEvidenceAfterTerminalDays <= 30);
@@ -113,6 +116,8 @@ test("every real scaffold profile rejects apply before evaluating self-requests"
             profile: profile.id,
             deploymentIdentity: "untrusted-test",
             enabled: true,
+            definitionDigest: `sha256:${"2".repeat(64)}`,
+            profilePolicyDigest: `sha256:${"3".repeat(64)}`,
             pluginLockDigest: `sha256:${"0".repeat(64)}`,
             targetContractVersion: 1,
             targetContractDigest: `sha256:${"1".repeat(64)}`,
@@ -141,6 +146,8 @@ test("fabricated grants cannot activate the Taco profile", () => {
           profile: tacoBoutMichiganProfile.id,
           deploymentIdentity: "fabricated",
           enabled: true,
+          definitionDigest: `sha256:${"2".repeat(64)}`,
+          profilePolicyDigest: `sha256:${"3".repeat(64)}`,
           pluginLockDigest: `sha256:${"0".repeat(64)}`,
           targetContractVersion: 1,
           targetContractDigest: `sha256:${"1".repeat(64)}`,

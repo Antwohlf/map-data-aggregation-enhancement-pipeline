@@ -18,6 +18,28 @@ export type ArtifactPolicy =
   | "restricted"
   | "forbidden";
 
+export type ArtifactClass =
+  | "raw"
+  | "derived"
+  | "review_evidence"
+  | "audit_metadata";
+
+export type SourceArtifactClass = Exclude<ArtifactClass, "audit_metadata">;
+
+export const BROKER_AUDIT_SCHEMA = {
+  name: "mapdata.broker-audit-metadata",
+  version: 1,
+} as const;
+
+export const BROKER_AUDIT_FIELDS = [
+  "contentDigest",
+  "eventType",
+  "manifestDigest",
+  "occurredAt",
+  "runId",
+  "stageId",
+] as const;
+
 export interface SchemaRef {
   name: string;
   version: number;
@@ -47,7 +69,8 @@ export interface StagePluginManifest {
   lock: PluginLock;
   inputs: Record<string, PortDeclaration>;
   outputs: Record<string, PortDeclaration>;
-  policyBinding: "none" | "source";
+  /** Exact adapter implemented by a source plugin; null for non-source plugins. */
+  sourceAdapter: string | null;
   effects: EffectClass[];
   delivery: "none" | "verified_receipt";
   secretRefs?: string[];
@@ -86,10 +109,21 @@ export interface StageDefinition {
   id: string;
   uses: string;
   inputs?: Record<string, string>;
-  sourcePolicyIds?: string[];
+  sourceBindings?: SourceBinding[];
   with?: Record<string, unknown>;
   resources: ResourceReservation;
   requestedEffects?: EffectRequestDeclaration[];
+}
+
+export interface SourceBinding {
+  policyId: string;
+  effectClass: Extract<EffectClass, "network.read" | "artifact.read">;
+  resourceUri: string;
+  operations: string[];
+  outputPorts: string[];
+  artifactClass: SourceArtifactClass;
+  /** Exact child datasets/spiders/snapshots observed by this stage. */
+  childIds: string[];
 }
 
 export interface PipelineDefinition {
@@ -109,6 +143,8 @@ export interface DeploymentManifest {
   profile: string;
   deploymentIdentity: string;
   enabled: boolean;
+  definitionDigest: string;
+  profilePolicyDigest: string;
   pluginLockDigest: string;
   targetContractVersion: number;
   targetContractDigest: string;
@@ -154,21 +190,81 @@ export interface RecordEnvelope<T = unknown> {
   }>;
 }
 
+declare const BROKER_DATASET_HANDLE: unique symbol;
+
 export interface DatasetRef {
+  readonly [BROKER_DATASET_HANDLE]: true;
   kind: "artifact";
+  /** Opaque identifier minted by the runtime broker. */
+  brokerHandle: string;
   artifactPolicy: Exclude<ArtifactPolicy, "forbidden">;
+  artifactClass: ArtifactClass;
   manifestDigest: string;
   contentDigest: string;
   schema: SchemaRef;
+  /** Broker-derived union of canonical payload field names. */
+  fields: string[];
   recordCount: number;
   uri: string;
+  retentionStartedAt: string;
+  expiresAt: string | null;
+  restrictions: DatasetRestrictions;
+  provenance: DatasetProvenance;
 }
 
+export interface SourcePolicyStamp {
+  profileId: string;
+  profilePolicyVersion: number;
+  profilePolicyDigest: string;
+  sourcePolicyId: string;
+}
+
+export interface DatasetRestrictions {
+  sourcePolicies: SourcePolicyStamp[];
+  redistribution: "forbidden" | "approved";
+  attributionRefs: string[];
+}
+
+export interface SourceDatasetProvenance {
+  kind: "source";
+  producingStageId: string;
+  profileId: string;
+  profilePolicyVersion: number;
+  profilePolicyDigest: string;
+  sourcePolicyId: string;
+  sourceAdapter: string;
+  effectClass: Extract<EffectClass, "network.read" | "artifact.read">;
+  resourceUri: string;
+  operations: string[];
+  outputPort: string;
+  childIds: string[];
+}
+
+export interface InternalDatasetProvenance {
+  kind: "internal";
+  producingStageId: string;
+  outputPort: string;
+  parentHandles: string[];
+}
+
+export interface BrokerAuditDatasetProvenance {
+  kind: "broker_audit";
+  runId: string;
+  stageId: string;
+}
+
+export type DatasetProvenance =
+  | SourceDatasetProvenance
+  | InternalDatasetProvenance
+  | BrokerAuditDatasetProvenance;
+
 export interface EphemeralDatasetHandle {
+  readonly [BROKER_DATASET_HANDLE]: true;
   kind: "ephemeral";
   artifactPolicy: "forbidden";
   brokerHandle: string;
   schema: SchemaRef;
+  recordCount: number;
 }
 
 export type DatasetHandle = DatasetRef | EphemeralDatasetHandle;
@@ -196,8 +292,14 @@ export interface SourcePolicyDeclaration {
   authority: "discovery_only" | "official" | "review_decision";
   policyStatus: "pending" | "approved";
   termsRef: string | null;
+  attributionRef: string | null;
   retentionDays: number | null;
-  upstreamTermsRefs: string[];
+  resourceUris: string[];
+  allowedSchemas: SchemaRef[];
+  upstreamTerms: Array<{
+    childId: string;
+    termsRef: string;
+  }>;
   provisionalRetention: {
     postApprovalArtifactPolicy: Exclude<ArtifactPolicy, "forbidden">;
     rawMaxDays: number;

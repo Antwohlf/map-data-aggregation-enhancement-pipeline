@@ -8,9 +8,14 @@ The scaffold is default-deny: profiles are deployment-disabled, have no effect
 policy or plugin-lock binding, and do not resolve ambient `.env` files.
 Future apply deployments must bind a profile, stage, deployment identity,
 exact target resource, operation, record bound, canonical plugin catalog, and
-one host-owned capacity policy. Public writes additionally require post-read
-verification. The apply authorization context snapshots and freezes verified
-inputs before a broker may use them.
+one host-owned capacity policy. The deployment also pins the exact definition
+and profile-policy digests. Every mutation uses a broker-registered dataset
+input or a one-shot output/state capability tied to an active stage invocation;
+public writes additionally require post-read verification, unexpired ancestry,
+and redistribution approval from every inherited source policy. Expired inputs
+are rejected before plugin execution. The apply authorization context snapshots
+and freezes verified inputs before a broker may use them, and the executor must
+close each invocation in a `finally` boundary.
 
 Direct database access must use product-owned, revocable roles. Prefer EXECUTE
 on narrowly scoped product functions and PII-free views over raw table access.
