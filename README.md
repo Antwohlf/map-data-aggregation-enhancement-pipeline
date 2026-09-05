@@ -95,6 +95,10 @@ target policy.
   edge cases; corrections use a later transform version and backfill.
 - BuildHere v1 supports field-level manual overrides and uses product-owned
   stored procedures plus PII-free views.
+- BuildHere verification changes require a distinct audited reviewer-decision
+  event; they are not generic field overrides.
+- No out-of-band production Project edits were reported, so no override seed
+  import is planned; a read-only pre-apply drift audit still fails closed.
 - Ann Arbor is the first preview-only BuildHere vertical slice.
 - Source retention follows [the source-data policy](docs/SOURCE_DATA_POLICY.md).
 
