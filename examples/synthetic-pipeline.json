@@ -10,7 +10,17 @@
     {
       "id": "source",
       "uses": "synthetic-source",
-      "sourcePolicyIds": ["synthetic-source-v1"],
+      "sourceBindings": [
+        {
+          "policyId": "synthetic-source-v1",
+          "effectClass": "artifact.read",
+          "resourceUri": "fixture://synthetic/generic-records",
+          "operations": ["read"],
+          "outputPorts": ["records"],
+          "artifactClass": "raw",
+          "childIds": []
+        }
+      ],
       "with": {
         "fixture": "synthetic-generic-records"
       },

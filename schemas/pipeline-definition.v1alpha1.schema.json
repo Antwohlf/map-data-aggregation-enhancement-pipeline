@@ -77,6 +77,44 @@
         "verification": { "enum": ["none", "post_read"] }
       }
     },
+    "sourceBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "policyId",
+        "effectClass",
+        "resourceUri",
+        "operations",
+        "outputPorts",
+        "artifactClass",
+        "childIds"
+      ],
+      "properties": {
+        "policyId": { "type": "string", "minLength": 1 },
+        "effectClass": { "enum": ["network.read", "artifact.read"] },
+        "resourceUri": { "type": "string", "minLength": 1 },
+        "operations": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "outputPorts": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "artifactClass": {
+          "enum": ["raw", "derived", "review_evidence"]
+        },
+        "childIds": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
     "resources": {
       "type": "object",
       "additionalProperties": false,
@@ -113,11 +151,10 @@
             "pattern": "^[a-z][a-z0-9-]*\\.[A-Za-z][A-Za-z0-9_-]*$"
           }
         },
-        "sourcePolicyIds": {
+        "sourceBindings": {
           "type": "array",
           "minItems": 1,
-          "uniqueItems": true,
-          "items": { "type": "string", "minLength": 1 }
+          "items": { "$ref": "#/$defs/sourceBinding" }
         },
         "with": { "type": "object" },
         "resources": { "$ref": "#/$defs/resources" },

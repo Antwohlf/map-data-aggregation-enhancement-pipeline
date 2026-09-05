@@ -19,6 +19,11 @@ their source terms, target contracts, and deployment manifests are approved.
 - Stable source/observation identity helpers.
 - Cross-profile job and preview/apply checkpoint identity helpers.
 - A fail-closed, verified apply-authorization context.
+- Deployment pinning for the exact definition and profile policy, not only the
+  plugin catalog and target.
+- Exact source adapter/resource/output/artifact bindings with structured
+  per-child terms coverage.
+- Broker-owned dataset provenance and retention-expiry contracts.
 - Initial product-profile declarations that do not share business policy.
 - A validation-only CLI and sanitized example definition.
 
@@ -38,11 +43,29 @@ deployment is safe to enable. A separately verified preview execution context
 is also a future milestone; the synthetic preview-named sink is definition
 validation only.
 
-Likewise, the SDK exposes only effect descriptions and secret identifiers. A
-future broker must calculate record bounds from broker-owned data, resolve
-secrets outside plugin context, and perform the authorized operation. Real
-adapters, transforms, job/state/artifact stores, and sinks are not implemented
-in this scaffold.
+Likewise, the SDK exposes only effect descriptions and secret identifiers. The
+broker contract calculates record bounds from broker-owned data, resolves
+secrets outside plugin context, stamps source policy and expiry onto finalized
+dataset references, and performs the authorized operation. Source reads return
+opaque acquisition handles; the broker derives observed child IDs, schema,
+field names, digests, and record counts before finalization. The executor mints
+an opaque, run-scoped stage invocation from the complete declared input-port
+map and exposes only an invocation-bound broker facade to the plugin. Input
+writes must name an exact invocation input; output and state writes use
+separate, one-shot broker capabilities bound to a staged output or checkpoint
+proposal. The executor closes the invocation in a `finally` boundary, making
+cached capabilities unusable. Expired inputs are rejected before plugin code
+runs. Stage results have only declared output ports—quarantine is an ordinary
+declared output, never a side channel—and a future executor must reject every
+handle absent from the broker registry. The broker runtime itself is not
+implemented. Real adapters, transforms, job/state/artifact stores, and sinks
+are not implemented in this scaffold.
+
+This repository has no release tags or published packages. Until the first
+tag, the untagged `v1alpha1` contract is intentionally mutable and has no
+compatibility guarantee; experimental consumers must pin a commit. The first
+tagged contract will receive a new API/schema version if its shape differs from
+the version documented at that tag.
 
 ## Development
 
