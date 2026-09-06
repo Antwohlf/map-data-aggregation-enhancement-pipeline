@@ -133,6 +133,26 @@ test("validates an ordered pipeline with explicit effect requests", () => {
   assert.deepEqual(validateDefinition(definition(), catalog), []);
 });
 
+test("validates optional pipeline partition constraints", () => {
+  const constrained = definition();
+  constrained.partitions = ["US"];
+  assert.deepEqual(validateDefinition(constrained, catalog), []);
+
+  constrained.partitions = ["US", "US"];
+  assert(
+    validateDefinition(constrained, catalog).some((issue) =>
+      issue.path === "partitions" && issue.message.includes("duplicates"),
+    ),
+  );
+
+  constrained.partitions = [" MI"];
+  assert(
+    validateDefinition(constrained, catalog).some((issue) =>
+      issue.path === "partitions[0]" && issue.message.includes("trimmed NFC"),
+    ),
+  );
+});
+
 test("write effects require a compatible subject-bearing port", () => {
   const noOutputCatalog = structuredClone(catalog);
   noOutputCatalog["synthetic-sink"]!.outputs = {};

@@ -1,0 +1,50 @@
+{
+  "fixtureId": "synthetic-apizza-fsq-records",
+  "license": "CC0-1.0",
+  "synthetic": true,
+  "rows": [
+    {
+      "fsq_place_id": "synthetic-fsq-pizza-1",
+      "name": "Motor City Test Pizza",
+      "latitude": 42.3314,
+      "longitude": -83.0458,
+      "address": "100 Example Avenue",
+      "locality": "Detroit",
+      "region": "MI",
+      "postcode": "48226",
+      "fsq_category_labels": ["Dining and Drinking", "Pizzeria"],
+      "website": "https://pizza-one.example",
+      "tel": "+1 313 555 0100",
+      "retrieved_at": "2026-09-06T00:00:00.000Z"
+    },
+    {
+      "fsq_id": "synthetic-fsq-cafe-1",
+      "name": "Great Lakes Test Cafe",
+      "lat": 42.2808,
+      "lon": -83.743,
+      "locality": "Ann Arbor",
+      "region": "MI",
+      "categories": ["Cafe"],
+      "retrieved_at": "2026-09-06T00:00:00.000Z"
+    },
+    {
+      "id": "synthetic-fsq-pizza-2",
+      "name": "Example Slice House",
+      "latitude": 42.8864,
+      "longitude": -78.8784,
+      "city": "Buffalo",
+      "state": "NY",
+      "category_name": "Pizza Place",
+      "retrieved_at": "2026-09-06T00:00:00.000Z"
+    },
+    {
+      "name": "Identifier-Free Pizzeria",
+      "latitude": 42.7325,
+      "longitude": -84.5555,
+      "locality": "Lansing",
+      "region": "MI",
+      "categories": ["Pizzeria"],
+      "retrieved_at": "2026-09-06T00:00:00.000Z"
+    }
+  ]
+}

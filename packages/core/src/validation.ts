@@ -100,6 +100,22 @@ export function validateDefinition(
   if (!definition.profile) {
     issues.push({ path: "profile", message: "is required" });
   }
+  if (definition.partitions) {
+    if (definition.partitions.length === 0) {
+      issues.push({ path: "partitions", message: "must not be empty" });
+    }
+    if (new Set(definition.partitions).size !== definition.partitions.length) {
+      issues.push({ path: "partitions", message: "must not contain duplicates" });
+    }
+    for (const [index, partition] of definition.partitions.entries()) {
+      if (!partition || partition.trim() !== partition || partition.normalize("NFC") !== partition) {
+        issues.push({
+          path: `partitions[${index}]`,
+          message: "must be non-empty, trimmed NFC text",
+        });
+      }
+    }
+  }
   if (!Number.isSafeInteger(definition.metadata.version) || definition.metadata.version <= 0) {
     issues.push({
       path: "metadata.version",

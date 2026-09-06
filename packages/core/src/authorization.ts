@@ -109,3 +109,12 @@ export function assertEffectAuthorizedInternal(input: {
     throw new EffectDeniedError("public.write requires post_read verification");
   }
 }
+
+export function assertPreviewEffectAuthorized(
+  input: Omit<
+    Parameters<typeof assertEffectAuthorizedInternal>[0],
+    "mode"
+  >,
+): void {
+  assertEffectAuthorizedInternal({ ...input, mode: "preview" });
+}
