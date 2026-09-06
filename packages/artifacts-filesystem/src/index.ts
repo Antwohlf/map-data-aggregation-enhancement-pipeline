@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
+import { mkdirSync } from "node:fs";
 import {
   link,
-  mkdir,
   readFile,
   realpath,
   rm,
@@ -32,14 +32,17 @@ function recordMetadata(value: CanonicalJson): {
   const wrappedRecords = value && typeof value === "object" && !Array.isArray(value)
     ? ["records", "rows", "places", "features"]
       .map((field) => value[field])
-      .find(Array.isArray)
-    : undefined;
+      .filter(Array.isArray)
+    : [];
+  if (wrappedRecords.length > 1) {
+    throw new TypeError("Artifact has multiple recognized record arrays");
+  }
   const records = Array.isArray(value)
     ? value
     : value === null
       ? []
-      : wrappedRecords
-        ? wrappedRecords
+      : wrappedRecords[0]
+        ? wrappedRecords[0]
         : [value];
   const fields = new Set<string>();
   if (value && typeof value === "object" && !Array.isArray(value)) {
@@ -101,18 +104,15 @@ export class FilesystemJsonArtifactStore implements JsonArtifactStore {
   readonly #manifests: string;
   readonly #staging: string;
   readonly #staged = new Map<string, StagedEntry>();
-  #ready: Promise<void>;
 
   constructor(root: string) {
     this.#root = resolve(root);
     this.#objects = join(this.#root, "objects");
     this.#manifests = join(this.#root, "manifests");
     this.#staging = join(this.#root, "staging");
-    this.#ready = Promise.all([
-      mkdir(this.#objects, { recursive: true, mode: 0o700 }),
-      mkdir(this.#manifests, { recursive: true, mode: 0o700 }),
-      mkdir(this.#staging, { recursive: true, mode: 0o700 }),
-    ]).then(() => undefined);
+    for (const path of [this.#objects, this.#manifests, this.#staging]) {
+      mkdirSync(path, { recursive: true, mode: 0o700 });
+    }
   }
 
   async stageJson(
@@ -121,7 +121,6 @@ export class FilesystemJsonArtifactStore implements JsonArtifactStore {
   ): Promise<StagedJsonArtifact> {
     assertByteLimit(options.maxBytes);
     throwIfAborted(options.signal);
-    await this.#ready;
     throwIfAborted(options.signal);
     const serialized = `${canonicalize(value)}\n`;
     const byteCount = Buffer.byteLength(serialized);
@@ -162,7 +161,6 @@ export class FilesystemJsonArtifactStore implements JsonArtifactStore {
     options: { signal: AbortSignal },
   ): Promise<CommittedJsonArtifact> {
     throwIfAborted(options.signal);
-    await this.#ready;
     throwIfAborted(options.signal);
     const entry = this.#staged.get(staged.handle);
     if (
@@ -237,7 +235,6 @@ export class FilesystemJsonArtifactStore implements JsonArtifactStore {
   ): Promise<CanonicalJson> {
     assertByteLimit(options.maxBytes);
     throwIfAborted(options.signal);
-    await this.#ready;
     throwIfAborted(options.signal);
     if (artifact.byteCount > options.maxBytes) {
       throw new Error(`Artifact exceeds ${options.maxBytes} bytes`);

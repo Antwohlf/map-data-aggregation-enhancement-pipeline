@@ -1,0 +1,101 @@
+{
+  "contractSchemaVersion": 1,
+  "profile": "apizzamichigan",
+  "name": "apizza-canonical-match",
+  "version": 1,
+  "resourceUri": "postgres-view://pipeline-input/apizza-canonical-match-v1",
+  "operation": "snapshot",
+  "partition": "US",
+  "databaseName": "pizza_enrichment",
+  "databaseRole": "map_pipeline_apizza_shadow_reader",
+  "databaseContractOwner": "map_pipeline_contract_owner",
+  "databaseIdentityRelation": {
+    "schema": "pipeline_control",
+    "name": "database_identity"
+  },
+  "relation": {
+    "schema": "pipeline_input",
+    "name": "apizza_canonical_match_v1",
+    "kind": "view"
+  },
+  "snapshotSchema": {
+    "name": "apizza.canonical-match-snapshot",
+    "version": 1
+  },
+  "cursor": {
+    "columns": [
+      "canonical_place_id"
+    ],
+    "schema": {
+      "name": "apizza.canonical-place-id-cursor",
+      "version": 1
+    },
+    "collation": "C",
+    "unique": true,
+    "maxUtf8Bytes": 256
+  },
+  "columns": [
+    {
+      "name": "canonical_place_id",
+      "type": "text",
+      "nullable": false,
+      "sourceExpression": "id::text"
+    },
+    {
+      "name": "name",
+      "type": "text",
+      "nullable": true,
+      "sourceExpression": "name::text"
+    },
+    {
+      "name": "address",
+      "type": "text",
+      "nullable": true,
+      "sourceExpression": "address::text"
+    },
+    {
+      "name": "state",
+      "type": "text",
+      "nullable": true,
+      "sourceExpression": "state::text"
+    },
+    {
+      "name": "google_place_id",
+      "type": "text",
+      "nullable": true,
+      "sourceExpression": "google_place_id::text"
+    },
+    {
+      "name": "website_url",
+      "type": "text",
+      "nullable": true,
+      "sourceExpression": "website_url::text"
+    },
+    {
+      "name": "phone",
+      "type": "text",
+      "nullable": true,
+      "sourceExpression": "phone::text"
+    },
+    {
+      "name": "lat",
+      "type": "double precision",
+      "nullable": false,
+      "sourceExpression": "lat::double precision"
+    },
+    {
+      "name": "lng",
+      "type": "double precision",
+      "nullable": false,
+      "sourceExpression": "lng::double precision"
+    }
+  ],
+  "selectionSemantics": {
+    "coordinateFilter": "lat IS NOT NULL AND lng IS NOT NULL",
+    "lifecycleFilter": "none",
+    "reason": "Version 1 preserves the legacy matcher candidate set for shadow parity. A lifecycle correction requires a new contract version."
+  },
+  "authority": "read_only_shadow_input",
+  "containsPii": false,
+  "redistribution": "forbidden"
+}

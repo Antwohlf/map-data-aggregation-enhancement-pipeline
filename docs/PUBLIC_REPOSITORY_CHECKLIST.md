@@ -9,6 +9,10 @@ Before creating or pushing a public remote:
   transformation, redistribution permission, and a NOTICE entry.
 - Scan Git history and the working tree for secrets, endpoints, hostnames,
   production paths, logs, raw artifacts, database/WAL files, and personal data.
+- Reject password-bearing PostgreSQL URIs and common database-password/DSN
+  assignments (including PostgreSQL, Supabase DB, DB password, and direct URL
+  forms); examples must construct obviously fake credentials at runtime when
+  needed.
 - Verify generated examples cannot resolve ambient credentials or enter apply.
 - Verify signed release tags/commits and every plugin integrity lock before
   execution.

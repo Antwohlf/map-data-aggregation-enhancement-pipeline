@@ -18,7 +18,11 @@ import {
   type ResourceReader,
   type StagePluginManifest,
 } from "@map-pipeline/core";
-import { PreviewExecutionError, PreviewExecutor } from "@map-pipeline/executor";
+import {
+  PreviewExecutionError,
+  PreviewExecutor,
+  ReadOnlyShadowExecutor,
+} from "@map-pipeline/executor";
 import type { StagePlugin } from "@map-pipeline/sdk";
 import { SqliteRunStateStore } from "@map-pipeline/state-sqlite";
 
@@ -30,6 +34,23 @@ import {
   apizzaPreviewHostPolicy,
   normalizeSyntheticFsqDocument,
 } from "./fsq-preview.js";
+
+function testFixtureSnapshot() {
+  return {
+    snapshotId: `sha256:${"f".repeat(64)}`,
+    sourceInstanceDigest: null,
+    readerBindingDigest: `sha256:${"d".repeat(64)}`,
+    capturedAt: null,
+    consistency: "immutable" as const,
+    cursorSchema: null,
+    startExclusive: null,
+    endInclusive: null,
+    complete: true as const,
+    contractName: "apizza.fsq.synthetic-document",
+    contractVersion: 1,
+    contractDigest: `sha256:${"e".repeat(64)}`,
+  };
+}
 
 test("the mixed-state preview CLI rejects misleading partitions", () => {
   const repositoryRoot = fileURLToPath(new URL("../../../", import.meta.url));
@@ -458,6 +479,160 @@ test("fixture preview rejects network effects before execution", () => {
   );
 });
 
+test("read-only shadow execution requires one exact host-owned source grant", async () => {
+  const runtimeRoot = await mkdtemp(join(tmpdir(), "map-pipeline-shadow-policy-"));
+  const state = new SqliteRunStateStore(join(runtimeRoot, "state.sqlite"));
+  const resourceUri = "postgres-view://pipeline-input/apizza-shadow-test-v1";
+  const policyId = "internal:apizza-shadow-test-v1";
+  const definition = structuredClone(apizzaFsqPreviewDefinition);
+  const catalog = structuredClone(apizzaFsqPreviewCatalog);
+  const sourceStage = definition.stages[0]!;
+  sourceStage.sourceBindings = [{
+    policyId,
+    effectClass: "network.read",
+    resourceUri,
+    operations: ["snapshot"],
+    outputPorts: ["records"],
+    artifactClass: "raw",
+    childIds: [],
+  }];
+  sourceStage.with = { resourceUri, outputPort: "records" };
+  sourceStage.requestedEffects![0] = {
+    effectClass: "network.read",
+    resourceUri,
+    operations: ["snapshot"],
+    maxRecords: 10,
+  };
+  catalog["fixture-json-source"]!.sourceAdapter = "postgres-readonly";
+  catalog["fixture-json-source"]!.effects = ["network.read", "artifact.write"];
+  const sourceManifest = catalog["fixture-json-source"]!;
+  const sourcePlugin: StagePlugin = {
+    manifest: sourceManifest,
+    async run(context, _inputs, configValue) {
+      const config = configValue as { resourceUri: string; outputPort: string };
+      const acquisition = await context.broker.acquire({
+        effectClass: "network.read",
+        resourceUri: config.resourceUri,
+        operation: "snapshot",
+      });
+      const stagedArtifact = await context.broker.stageSourceArtifact({
+        acquisition,
+        outputPort: config.outputPort,
+        artifactUri: config.resourceUri,
+      });
+      const output = await context.broker.finalizeSourceArtifactAndCommitAcquisition({
+        acquisition,
+        stagedArtifact,
+        outputPort: config.outputPort,
+      });
+      return { outputs: { records: output }, metrics: { records: output.recordCount } };
+    },
+  };
+  const plugins = { ...apizzaFsqPreviewPlugins, "fixture-json-source": sourcePlugin };
+  const reader: ResourceReader = {
+    async read(input) {
+      assert.equal(input.partition, "US");
+      assert.equal(input.maxRecords, 10);
+      assert.equal(input.timeoutMs, sourceStage.resources.maxWallTimeMs);
+      return {
+        value: {
+          fixtureId: "shadow-policy-test",
+          license: "CC0-1.0",
+          synthetic: true,
+          rows: [{
+            fsq_place_id: "shadow-1",
+            name: "Shadow Pizza",
+            latitude: 42.3314,
+            longitude: -83.0458,
+            region: "MI",
+            categories: ["Pizza"],
+          }],
+        },
+        observedChildIds: [],
+        schema: { name: "apizza.fsq.synthetic-document", version: 1 },
+        snapshot: {
+          snapshotId: "100:200:",
+          sourceInstanceDigest: `sha256:${"c".repeat(64)}`,
+          readerBindingDigest: `sha256:${"b".repeat(64)}`,
+          capturedAt: "2026-09-06T12:00:00.000Z",
+          consistency: "repeatable_read",
+          cursorSchema: { name: "test.cursor", version: 1 },
+          startExclusive: null,
+          endInclusive: ["shadow-1"],
+          complete: true,
+          contractName: "test-shadow-source",
+          contractVersion: 1,
+          contractDigest: `sha256:${"a".repeat(64)}`,
+        },
+      };
+    },
+  };
+  const commonOptions = {
+    definition,
+    catalog,
+    plugins,
+    readers: { "postgres-readonly": reader },
+    artifactStore: new FilesystemJsonArtifactStore(join(runtimeRoot, "objects")),
+    stateStore: state,
+    schemaValidators: apizzaFsqPreviewSchemaValidators,
+    hostPolicy: apizzaPreviewHostPolicy,
+    observedFreeDiskBytes: async () => 10_000_000_000,
+    deploymentIdentity: "local-apizza-shadow-test",
+    allowedPartitions: ["US"],
+  };
+  const sourceReadGrant = {
+    stageId: "source",
+    sourceAdapter: "postgres-readonly",
+    policyId,
+    effectClass: "network.read" as const,
+    resourceUri,
+    operations: ["snapshot"] as const,
+    partitions: ["US"] as const,
+    maxRecords: 10,
+    snapshot: {
+      consistency: "repeatable_read" as const,
+      sourceInstanceDigest: `sha256:${"c".repeat(64)}`,
+      readerBindingDigest: `sha256:${"b".repeat(64)}`,
+      cursorSchema: { name: "test.cursor", version: 1 },
+      contractName: "test-shadow-source",
+      contractVersion: 1,
+      contractDigest: `sha256:${"a".repeat(64)}`,
+    },
+  };
+  try {
+    assert.throws(
+      () => new ReadOnlyShadowExecutor({ ...commonOptions, sourceReadGrants: [] }),
+      /lacks one exact host-owned read grant/,
+    );
+    assert.throws(
+      () => new ReadOnlyShadowExecutor({
+        ...commonOptions,
+        sourceReadGrants: [{ ...sourceReadGrant, partitions: ["MI"] }],
+      }),
+      /lacks one exact host-owned read grant/,
+    );
+    for (const invalidMaxRecords of [0, 1.5, Number.NaN, Number.POSITIVE_INFINITY]) {
+      assert.throws(
+        () => new ReadOnlyShadowExecutor({
+          ...commonOptions,
+          sourceReadGrants: [{ ...sourceReadGrant, maxRecords: invalidMaxRecords }],
+        }),
+        /Shadow source read grant is invalid/,
+      );
+    }
+    const executor = new ReadOnlyShadowExecutor({
+      ...commonOptions,
+      sourceReadGrants: [sourceReadGrant],
+    });
+    const report = await executor.run({ partition: "US", runId: "shadow-policy-run" });
+    assert.equal(report.runtimeClass, "read_only_shadow");
+    assert.equal(report.status, "succeeded");
+  } finally {
+    state.close();
+    await rm(runtimeRoot, { recursive: true, force: true });
+  }
+});
+
 test("fails the durable run when a stage exceeds its artifact-byte reservation", async () => {
   const runtimeRoot = await mkdtemp(join(tmpdir(), "map-pipeline-preview-limit-"));
   const repositoryRoot = fileURLToPath(new URL("../../../", import.meta.url));
@@ -560,7 +735,7 @@ test("source finalization is one-shot under concurrent plugin calls", async () =
   const artifactStore: JsonArtifactStore = {
     stageJson: (value, options) => baseStore.stageJson(value, options),
     async commitJson(staged, metadata, options) {
-      if (metadata.provenance.kind === "source") sourceCommitCalls += 1;
+      if (metadata.provenance.kind === "preview_source") sourceCommitCalls += 1;
       await new Promise<void>((resolveDelay) => setImmediate(resolveDelay));
       return baseStore.commitJson(staged, metadata, options);
     },
@@ -648,6 +823,7 @@ test("timeout drains a late broker read before failing without artifacts", async
         },
         observedChildIds: [],
         schema: { name: "apizza.fsq.synthetic-document", version: 1 },
+        snapshot: testFixtureSnapshot(),
       };
     },
   };
@@ -780,6 +956,7 @@ test("source payloads must pass the host-owned versioned schema validator", asyn
         value: { not: "an FSQ document" },
         observedChildIds: [],
         schema: { name: "apizza.fsq.synthetic-document", version: 1 },
+        snapshot: testFixtureSnapshot(),
       };
     },
   };
@@ -820,6 +997,7 @@ test("source schema identity must match the declared output", async () => {
         },
         observedChildIds: [],
         schema: { name: "wrong.document", version: 1 },
+        snapshot: testFixtureSnapshot(),
       };
     },
   };

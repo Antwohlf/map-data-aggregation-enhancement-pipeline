@@ -5,6 +5,7 @@ import type {
   DatasetRestrictions,
   PipelineMode,
   SchemaRef,
+  SourceSnapshotDescriptor,
 } from "./types.js";
 import type { CanonicalJson } from "./identity.js";
 
@@ -52,13 +53,21 @@ export interface ResourceReadResult {
   value: CanonicalJson;
   observedChildIds: string[];
   schema: SchemaRef;
+  /** Reader-observed metadata; the broker copies this into source provenance. */
+  snapshot: SourceSnapshotDescriptor;
 }
 
 export interface ResourceReader {
   read(input: {
     resourceUri: string;
     operation: string;
+    /** Broker-owned logical partition; adapters must not accept plugin-supplied scope. */
+    partition: string;
+    /** Broker-owned upper bound; readers must fail rather than truncate. */
+    maxRecords: number;
     maxBytes: number;
+    /** Broker-owned stage wall-time ceiling in milliseconds. */
+    timeoutMs: number;
     signal: AbortSignal;
   }): Promise<ResourceReadResult>;
 }

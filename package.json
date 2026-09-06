@@ -29,8 +29,11 @@
   "scripts": {
     "check": "tsc --noEmit",
     "test": "tsx --test 'packages/**/*.test.ts' 'profiles/**/*.test.ts'",
+    "test:postgres": "tsx --test packages/adapter-postgres/src/integration.test.ts",
+    "test:postgres-provision": "tsx --test packages/adapter-postgres/src/provision.integration.test.ts",
     "validate:example": "tsx packages/cli/src/main.ts validate --definition examples/synthetic-pipeline.json --catalog examples/plugin-catalog.json",
     "preview:apizza-fsq": "tsx profiles/apizzamichigan/src/run-fsq-preview.ts",
+    "digest:json": "tsx scripts/digest-json.ts",
     "audit:public": "node scripts/audit-public-files.mjs"
   },
   "devDependencies": {

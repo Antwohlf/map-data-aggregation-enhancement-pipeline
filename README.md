@@ -30,13 +30,17 @@ their source terms, target contracts, and deployment manifests are approved.
   signaling.
 - Immutable, content-addressed filesystem artifacts and SQLite run state.
 - A manifest-verified synthetic-fixture adapter.
+- A separately gated read-only shadow executor and attested PostgreSQL snapshot
+  adapter.
 - An executable APizzaMichigan FSQ-shaped fixture preview.
 
-The repository now executes a deliberately narrow class of local synthetic
-previews. It still does **not** execute real source adapters or write product
-databases. Real profiles have no effect policy or plugin-lock binding. The
-existing application pipelines remain authoritative until source-by-source
-cutover gates and rollback rehearsals pass.
+The repository executes local synthetic previews. It also contains a distinct
+non-authoritative shadow runtime that may read one exact host-configured
+PostgreSQL view under a dedicated read-only credential. It does **not** acquire
+real external discovery sources or write product databases. Real profiles have
+no effect policy or plugin-lock binding. The existing application pipelines
+remain authoritative until source-by-source cutover gates and rollback
+rehearsals pass.
 
 ## Known intentional limits
 
@@ -67,13 +71,15 @@ flight fails the stage. Expired inputs are rejected before plugin code runs.
 Output receipts are opaque broker-minted values bound to the committed output,
 not plugin-authored claims. Stage results have only declared output ports—quarantine is an ordinary
 declared output, never a side channel—and the preview executor rejects every
-handle absent from its run-scoped broker registry. The preview broker implements
-those controls only for approved synthetic fixture reads and preview artifact
-writes. Preview plugins still run in-process with ambient Node authority and
-must be trusted; this milestone is not a security sandbox. Apply execution,
-shared host-wide admission, out-of-process supervision, real source
-acquisition, worker queues, product database adapters, and publication sinks
-remain future milestones.
+handle absent from its run-scoped broker registry. The fixture runtime
+implements those controls only for approved synthetic reads and preview
+artifact writes. The separately constructed read-only shadow runtime also
+requires an exact host-owned source grant and matching snapshot attestation; it
+still permits no non-preview writes. Both runtimes run plugins in-process with
+ambient Node authority and must use trusted plugins; this milestone is not a
+security sandbox. Apply execution, shared host-wide admission, out-of-process
+supervision, external source acquisition, worker queues, writable product
+database adapters, and publication sinks remain future milestones.
 
 This repository has no release tags or published packages. Until the first
 tag, the untagged `v1alpha1` contract is intentionally mutable and has no
@@ -98,6 +104,8 @@ npm run preview:apizza-fsq -- --partition US
 The preview writes only to the ignored `.map-pipeline/` directory. See
 [the preview runtime documentation](docs/PREVIEW_RUNTIME.md) for its guarantees
 and intentional limitations.
+The PostgreSQL boundary is documented in
+[the snapshot-adapter guide](docs/POSTGRES_SNAPSHOT_ADAPTER.md).
 
 ## Dependency rule
 

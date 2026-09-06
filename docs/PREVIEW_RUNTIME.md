@@ -14,7 +14,11 @@ state and artifacts while every real product profile remains fail-closed.
   signaling and draining of in-flight broker calls before durable failure. A
   plugin that returns with a broker call still in flight fails its stage.
 - A run-scoped broker registry for all dataset handles.
-- Broker-authorized `fixture://` reads and `preview://` artifact writes only.
+- A fixture runtime with broker-authorized `fixture://` reads and
+  `preview://` artifact writes only.
+- A separately constructed read-only shadow runtime with exact host-owned
+  source grants, snapshot attestations, and the same `preview://`-only output
+  boundary.
 - Immutable content-addressed JSON objects and manifests.
 - SQLite run, stage-attempt, and profile/mode-bound checkpoint state.
 - A fixture reader that accepts only manifest-listed, synthetic, PII-free,
@@ -46,10 +50,19 @@ repository audit.
 
 ## Safety boundary
 
-Broker-mediated operations reject network reads, state effects requested by plugins,
+The fixture executor rejects network reads, state effects requested by plugins,
 evidence/review/canonical/public writes, secrets, non-`fixture://` source
-bindings, and non-`preview://` outputs before starting a run. The trusted
-executor does not pass its run ledger to plugins.
+bindings, and non-`preview://` outputs before starting a run. The read-only
+shadow executor permits network or artifact reads only when one exact
+host-owned grant matches the stage, adapter, policy binding, logical resource,
+operation, record cap, partition, and expected snapshot attestation. It rejects
+the same state and non-preview writes. Neither executor passes its run ledger or
+resolved credentials to plugins.
+
+Shadow artifacts are explicitly marked `preview_source`, carry the shadow
+runtime-policy digest and source-snapshot descriptor, and have no approved
+profile-policy stamps. This makes the non-authoritative boundary machine
+checkable: apply readiness cannot accept them as production source evidence.
 
 Plugins are trusted, in-process Node.js code in this milestone. They retain
 ambient process authority and can bypass the broker by importing Node APIs;
@@ -76,9 +89,11 @@ and deployment-disabled.
 - Restart/resume from a partially completed run.
 - Durable job workers, claims, heartbeats, retries, or cancellation recovery.
 - Artifact garbage collection, backup, and restore rehearsal.
-- Read-only canonical comparison and record-by-record legacy parity reports.
+- APizza-owned canonical matching and record-by-record legacy parity reports.
 - Evidence, review, canonical, or public database sinks.
 - Apply mode.
 
-These are migration gates, not optional polish. No iMac launchd service should
-point at this repository until the relevant gate in the extraction RFC is met.
+These are migration gates, not optional polish. No iMac launchd service points
+at this repository yet. The PostgreSQL shadow boundary and its provisioning
+requirements are described in `docs/POSTGRES_SNAPSHOT_ADAPTER.md`; activation
+still requires the remaining gate in the extraction RFC.

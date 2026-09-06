@@ -20,9 +20,11 @@ import {
   type PipelineDefinition,
   type ResourceReader,
   type RunStateStore,
+  type SchemaRef,
   type StageDefinition,
   type StagePluginManifest,
   type StagedJsonArtifact,
+  type SourceSnapshotDescriptor,
 } from "@map-pipeline/core";
 import type {
   BrokerAcquisitionHandle,
@@ -80,6 +82,7 @@ interface AcquisitionEntry {
   recordCount: number;
   observedChildIds: string[];
   schema: { name: string; version: number };
+  snapshot: SourceSnapshotDescriptor;
   status: "open" | "finalizing" | "finalized" | "failed";
 }
 
@@ -96,8 +99,11 @@ function recordCount(value: CanonicalJson): number {
   if (typeof value === "object") {
     const wrapped = ["records", "rows", "places", "features"]
       .map((field) => value[field])
-      .find(Array.isArray);
-    if (wrapped) return wrapped.length;
+      .filter(Array.isArray);
+    if (wrapped.length > 1) {
+      throw new PreviewExecutionError("Dataset has multiple recognized record arrays");
+    }
+    if (wrapped[0]) return wrapped[0].length;
   }
   return 1;
 }
@@ -119,6 +125,60 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+function isCanonicalJson(value: unknown): value is CanonicalJson {
+  if (
+    value === null ||
+    typeof value === "string" ||
+    typeof value === "boolean" ||
+    (typeof value === "number" && Number.isFinite(value))
+  ) return true;
+  if (Array.isArray(value)) return value.every(isCanonicalJson);
+  if (typeof value !== "object") return false;
+  const prototype = Object.getPrototypeOf(value);
+  return (prototype === Object.prototype || prototype === null) &&
+    Object.values(value).every(isCanonicalJson);
+}
+
+function validateSnapshotDescriptor(snapshot: SourceSnapshotDescriptor): void {
+  const capturedAtValid = snapshot.capturedAt === null ||
+    (typeof snapshot.capturedAt === "string" &&
+      !Number.isNaN(Date.parse(snapshot.capturedAt)) &&
+      new Date(snapshot.capturedAt).toISOString() === snapshot.capturedAt);
+  const cursorSchemaValid = snapshot.cursorSchema === null || (
+    typeof snapshot.cursorSchema?.name === "string" &&
+    Boolean(snapshot.cursorSchema.name) &&
+    Number.isSafeInteger(snapshot.cursorSchema.version) &&
+    snapshot.cursorSchema.version > 0
+  );
+  if (
+    typeof snapshot.snapshotId !== "string" ||
+    !snapshot.snapshotId ||
+    snapshot.snapshotId.trim() !== snapshot.snapshotId ||
+    (snapshot.sourceInstanceDigest !== null &&
+      !/^sha256:[a-f0-9]{64}$/.test(snapshot.sourceInstanceDigest)) ||
+    !/^sha256:[a-f0-9]{64}$/.test(snapshot.readerBindingDigest) ||
+    !capturedAtValid ||
+    !["immutable", "repeatable_read"].includes(snapshot.consistency) ||
+    !cursorSchemaValid ||
+    !isCanonicalJson(snapshot.startExclusive) ||
+    !isCanonicalJson(snapshot.endInclusive) ||
+    snapshot.complete !== true ||
+    typeof snapshot.contractName !== "string" ||
+    !snapshot.contractName ||
+    !Number.isSafeInteger(snapshot.contractVersion) ||
+    snapshot.contractVersion < 1 ||
+    !/^sha256:[a-f0-9]{64}$/.test(snapshot.contractDigest)
+  ) {
+    throw new PreviewExecutionError("Reader returned invalid source snapshot metadata");
+  }
+}
+
+function sameSchemaOrNull(left: SchemaRef | null, right: SchemaRef | null): boolean {
+  return left === null
+    ? right === null
+    : right !== null && left.name === right.name && left.version === right.version;
+}
+
 function freezeRecursively<T>(value: T): T {
   if (value !== null && typeof value === "object" && !Object.isFrozen(value)) {
     for (const child of Object.values(value)) freezeRecursively(child);
@@ -136,6 +196,11 @@ class PreviewStageBroker implements StageBroker {
   readonly #readers: Readonly<Record<string, ResourceReader>>;
   readonly #schemaValidators: Readonly<Record<string, CanonicalJsonValidator>>;
   readonly #signal: AbortSignal;
+  readonly #partition: string;
+  readonly #deploymentIdentity: string;
+  readonly #runtimePolicyDigest: string;
+  readonly #runtimeClass: "fixture_preview" | "read_only_shadow";
+  readonly #shadowSourceReadGrants: readonly ShadowSourceReadGrant[];
   readonly #grants: EffectAuthorization[];
   readonly #inputs: Readonly<Record<string, DatasetHandle>>;
   readonly #acquisitions = new Map<string, AcquisitionEntry>();
@@ -164,6 +229,11 @@ class PreviewStageBroker implements StageBroker {
     readers: Readonly<Record<string, ResourceReader>>;
     schemaValidators: Readonly<Record<string, CanonicalJsonValidator>>;
     signal: AbortSignal;
+    partition: string;
+    deploymentIdentity: string;
+    runtimePolicyDigest: string;
+    runtimeClass: "fixture_preview" | "read_only_shadow";
+    shadowSourceReadGrants: readonly ShadowSourceReadGrant[];
     inputs: Readonly<Record<string, DatasetHandle>>;
   }) {
     this.#definition = input.definition;
@@ -174,11 +244,16 @@ class PreviewStageBroker implements StageBroker {
     this.#readers = input.readers;
     this.#schemaValidators = input.schemaValidators;
     this.#signal = input.signal;
+    this.#partition = input.partition;
+    this.#deploymentIdentity = input.deploymentIdentity;
+    this.#runtimePolicyDigest = input.runtimePolicyDigest;
+    this.#runtimeClass = input.runtimeClass;
+    this.#shadowSourceReadGrants = input.shadowSourceReadGrants;
     this.#inputs = Object.freeze({ ...input.inputs });
     this.#grants = (input.stage.requestedEffects ?? []).map((request) => ({
       profile: input.definition.profile,
       stageId: input.stage.id,
-      deploymentIdentity: "local-preview",
+      deploymentIdentity: input.deploymentIdentity,
       ...request,
     }));
   }
@@ -233,7 +308,7 @@ class PreviewStageBroker implements StageBroker {
     assertPreviewEffectAuthorized({
       profile: this.#definition.profile,
       stageId: this.#stage.id,
-      deploymentIdentity: "local-preview",
+      deploymentIdentity: this.#deploymentIdentity,
       manifest: this.#manifest,
       grants: this.#grants,
       request: input,
@@ -271,7 +346,10 @@ class PreviewStageBroker implements StageBroker {
       if (!reader) throw new PreviewExecutionError(`No reader registered for adapter ${adapter}`);
       const result = await reader.read({
         ...request,
+        partition: this.#partition,
+        maxRecords: declaration.maxRecords,
         maxBytes: this.#stage.resources.maxArtifactBytes - this.#artifactBytes,
+        timeoutMs: this.#stage.resources.maxWallTimeMs,
         signal: this.#signal,
       });
       this.#assertOpen();
@@ -286,12 +364,38 @@ class PreviewStageBroker implements StageBroker {
         kind: "broker_acquisition",
         brokerHandle: `acquisition:${randomUUID()}`,
       }) as unknown as BrokerAcquisitionHandle;
+      validateSnapshotDescriptor(result.snapshot);
+      if (this.#shadowSourceReadGrants.length) {
+        const grant = this.#shadowSourceReadGrants.find((candidate) =>
+          candidate.stageId === this.#stage.id &&
+          candidate.sourceAdapter === this.#manifest.sourceAdapter &&
+          candidate.effectClass === request.effectClass &&
+          candidate.resourceUri === request.resourceUri &&
+          candidate.partitions.includes(this.#partition) &&
+          candidate.operations.includes(request.operation));
+        const expectation = grant?.snapshot;
+        if (
+          !expectation ||
+          result.snapshot.consistency !== expectation.consistency ||
+          result.snapshot.sourceInstanceDigest !== expectation.sourceInstanceDigest ||
+          result.snapshot.readerBindingDigest !== expectation.readerBindingDigest ||
+          result.snapshot.contractName !== expectation.contractName ||
+          result.snapshot.contractVersion !== expectation.contractVersion ||
+          result.snapshot.contractDigest !== expectation.contractDigest ||
+          !sameSchemaOrNull(result.snapshot.cursorSchema, expectation.cursorSchema)
+        ) {
+          throw new PreviewExecutionError(
+            "Reader snapshot does not match the host-owned shadow attestation",
+          );
+        }
+      }
       this.#acquisitions.set(handle.brokerHandle, {
         request,
         value: authoritativeValue,
         recordCount: authoritativeRecordCount,
         observedChildIds: [...result.observedChildIds].sort(),
         schema: { ...result.schema },
+        snapshot: freezeRecursively(structuredClone(result.snapshot)),
         status: "open",
       });
       return handle;
@@ -365,11 +469,6 @@ class PreviewStageBroker implements StageBroker {
       }
       const binding = this.#sourceBinding(input.outputPort, acquisition);
       acquisition.status = "finalizing";
-      const profilePolicyDigest = digestObject({
-        kind: "synthetic-preview",
-        profile: this.#definition.profile,
-        pipeline: this.#definition.metadata,
-      });
       const now = new Date().toISOString();
       const metadata: ArtifactCommitMetadata = {
         schema: this.#manifest.outputs[input.outputPort]!.schema,
@@ -378,28 +477,24 @@ class PreviewStageBroker implements StageBroker {
         retentionStartedAt: now,
         expiresAt: new Date(Date.parse(now) + 86_400_000).toISOString(),
         restrictions: {
-          sourcePolicies: [{
-            profileId: this.#definition.profile,
-            profilePolicyVersion: this.#definition.metadata.version,
-            profilePolicyDigest,
-            sourcePolicyId: binding.policyId,
-          }],
+          sourcePolicies: [],
           redistribution: "forbidden",
           attributionRefs: [],
         },
         provenance: {
-          kind: "source",
+          kind: "preview_source",
+          runtimeClass: this.#runtimeClass,
+          runtimePolicyDigest: this.#runtimePolicyDigest,
           producingStageId: this.#stage.id,
           profileId: this.#definition.profile,
-          profilePolicyVersion: this.#definition.metadata.version,
-          profilePolicyDigest,
-          sourcePolicyId: binding.policyId,
+          bindingPolicyId: binding.policyId,
           sourceAdapter: this.#manifest.sourceAdapter!,
           effectClass: binding.effectClass,
           resourceUri: binding.resourceUri,
           operations: binding.operations,
           outputPort: input.outputPort,
           childIds: acquisition.observedChildIds,
+          snapshot: acquisition.snapshot,
         },
       };
       try {
@@ -773,6 +868,7 @@ export interface PreviewStageReport {
 
 export interface PreviewExecutionReport {
   mode: "preview";
+  runtimeClass: "fixture_preview" | "read_only_shadow";
   status: "succeeded";
   runId: string;
   profile: string;
@@ -798,11 +894,98 @@ export interface PreviewExecutorOptions {
   now?: () => Date;
 }
 
-export class PreviewExecutor {
+export interface ShadowSourceReadGrant {
+  stageId: string;
+  sourceAdapter: string;
+  policyId: string;
+  effectClass: "network.read" | "artifact.read";
+  resourceUri: string;
+  operations: readonly string[];
+  partitions: readonly string[];
+  maxRecords: number;
+  snapshot: {
+    consistency: "immutable" | "repeatable_read";
+    sourceInstanceDigest: string | null;
+    readerBindingDigest: string;
+    cursorSchema: SchemaRef | null;
+    contractName: string;
+    contractVersion: number;
+    contractDigest: string;
+  };
+}
+
+export interface ReadOnlyShadowExecutorOptions extends PreviewExecutorOptions {
+  deploymentIdentity: string;
+  allowedPartitions: readonly string[];
+  sourceReadGrants: readonly ShadowSourceReadGrant[];
+}
+
+interface ExecutorRuntimePolicy {
+  kind: "fixture_preview" | "read_only_shadow";
+  deploymentIdentity: string;
+  allowedPartitions: readonly string[];
+  sourceReadGrants: readonly ShadowSourceReadGrant[];
+}
+
+function validateRuntimePolicyShape(policy: ExecutorRuntimePolicy): void {
+  if (
+    !policy.deploymentIdentity ||
+    policy.deploymentIdentity.trim() !== policy.deploymentIdentity ||
+    !policy.allowedPartitions.length ||
+    new Set(policy.allowedPartitions).size !== policy.allowedPartitions.length ||
+    policy.allowedPartitions.some((partition) => !partition || partition.trim() !== partition)
+  ) {
+    throw new PreviewExecutionError("Runtime policy identity or partitions are invalid");
+  }
+  for (const grant of policy.sourceReadGrants) {
+    let resourceUriValid = false;
+    try {
+      const resource = new URL(grant.resourceUri);
+      resourceUriValid = resource.toString() === grant.resourceUri &&
+        !resource.username && !resource.password && !resource.search && !resource.hash;
+    } catch {
+      resourceUriValid = false;
+    }
+    if (
+      !grant.stageId ||
+      !grant.sourceAdapter ||
+      !grant.policyId ||
+      !resourceUriValid ||
+      !grant.operations.length ||
+      new Set(grant.operations).size !== grant.operations.length ||
+      grant.operations.some((operation) => !operation || operation.trim() !== operation) ||
+      !grant.partitions.length ||
+      new Set(grant.partitions).size !== grant.partitions.length ||
+      grant.partitions.some((partition) => !partition || partition.trim() !== partition) ||
+      !Number.isSafeInteger(grant.maxRecords) ||
+      grant.maxRecords <= 0 ||
+      !grant.snapshot ||
+      !["immutable", "repeatable_read"].includes(grant.snapshot.consistency) ||
+      (grant.snapshot.sourceInstanceDigest !== null &&
+        !/^sha256:[a-f0-9]{64}$/.test(grant.snapshot.sourceInstanceDigest)) ||
+      !/^sha256:[a-f0-9]{64}$/.test(grant.snapshot.readerBindingDigest) ||
+      (grant.snapshot.cursorSchema !== null && (
+        !grant.snapshot.cursorSchema.name ||
+        !Number.isSafeInteger(grant.snapshot.cursorSchema.version) ||
+        grant.snapshot.cursorSchema.version < 1
+      )) ||
+      !grant.snapshot.contractName ||
+      !Number.isSafeInteger(grant.snapshot.contractVersion) ||
+      grant.snapshot.contractVersion < 1 ||
+      !/^sha256:[a-f0-9]{64}$/.test(grant.snapshot.contractDigest)
+    ) {
+      throw new PreviewExecutionError("Shadow source read grant is invalid");
+    }
+  }
+}
+
+class OrderedArtifactExecutor {
   readonly #options: PreviewExecutorOptions;
+  readonly #runtimePolicy: ExecutorRuntimePolicy;
+  readonly #runtimePolicyDigest: string;
   #running = false;
 
-  constructor(options: PreviewExecutorOptions) {
+  constructor(options: PreviewExecutorOptions, runtimePolicy: ExecutorRuntimePolicy) {
     this.#options = {
       ...options,
       definition: freezeRecursively(structuredClone(options.definition)),
@@ -812,13 +995,26 @@ export class PreviewExecutor {
       schemaValidators: Object.freeze({ ...options.schemaValidators }),
       hostPolicy: freezeRecursively(structuredClone(options.hostPolicy)),
     };
+    this.#runtimePolicy = freezeRecursively(structuredClone(runtimePolicy));
+    validateRuntimePolicyShape(this.#runtimePolicy);
+    this.#runtimePolicyDigest = digestObject({
+      kind: this.#runtimePolicy.kind,
+      deploymentIdentity: this.#runtimePolicy.deploymentIdentity,
+      allowedPartitions: [...this.#runtimePolicy.allowedPartitions],
+      sourceReadGrants: this.#runtimePolicy.sourceReadGrants.map((grant) => ({
+        ...grant,
+        operations: [...grant.operations],
+      })),
+      profile: this.#options.definition.profile,
+      pipeline: this.#options.definition.metadata,
+    });
     this.#assertReady();
   }
 
   async run(input: { partition: string; runId?: string }): Promise<PreviewExecutionReport> {
     if (this.#running) {
       throw new PreviewExecutionError(
-        "This preview executor already has an active run; cross-process admission is not implemented",
+        "This executor already has an active run; cross-process admission is not implemented",
       );
     }
     if (!input.partition.trim()) throw new PreviewExecutionError("Partition is required");
@@ -830,12 +1026,9 @@ export class PreviewExecutor {
         `Partition ${input.partition} is not allowed by this pipeline definition`,
       );
     }
-    if (
-      this.#options.definition.partitions &&
-      !this.#options.definition.partitions.includes(input.partition)
-    ) {
+    if (!this.#runtimePolicy.allowedPartitions.includes(input.partition)) {
       throw new PreviewExecutionError(
-        `Partition ${input.partition} is not permitted by this pipeline definition`,
+        `Partition ${input.partition} is not allowed by this runtime policy`,
       );
     }
     const now = this.#options.now ?? (() => new Date());
@@ -910,6 +1103,13 @@ export class PreviewExecutor {
           readers: this.#options.readers,
           schemaValidators: this.#options.schemaValidators,
           signal: controller.signal,
+          partition: input.partition,
+          deploymentIdentity: this.#runtimePolicy.deploymentIdentity,
+          runtimePolicyDigest: this.#runtimePolicyDigest,
+          runtimeClass: this.#runtimePolicy.kind,
+          shadowSourceReadGrants: this.#runtimePolicy.kind === "read_only_shadow"
+            ? this.#runtimePolicy.sourceReadGrants
+            : [],
           inputs: invocationInputs,
         });
 
@@ -990,6 +1190,7 @@ export class PreviewExecutor {
       });
       return {
         mode: "preview",
+        runtimeClass: this.#runtimePolicy.kind,
         status: "succeeded",
         runId,
         profile: this.#options.definition.profile,
@@ -1025,6 +1226,24 @@ export class PreviewExecutor {
     if (!hostPolicy.id || hostPolicy.version < 1) {
       throw new PreviewExecutionError("Host policy identity is invalid");
     }
+    if (
+      !this.#runtimePolicy.deploymentIdentity ||
+      this.#runtimePolicy.deploymentIdentity.trim() !== this.#runtimePolicy.deploymentIdentity ||
+      !this.#runtimePolicy.allowedPartitions.length ||
+      new Set(this.#runtimePolicy.allowedPartitions).size !==
+        this.#runtimePolicy.allowedPartitions.length
+    ) {
+      throw new PreviewExecutionError("Runtime policy identity or partitions are invalid");
+    }
+    if (
+      !definition.partitions ||
+      definition.partitions.some(
+        (partition) => !this.#runtimePolicy.allowedPartitions.includes(partition),
+      )
+    ) {
+      throw new PreviewExecutionError("Definition partitions exceed the runtime policy");
+    }
+    const usedShadowGrants = new Set<number>();
     for (const stage of definition.stages) {
       const manifest = catalog[stage.uses]!;
       const plugin = plugins[stage.uses];
@@ -1032,7 +1251,7 @@ export class PreviewExecutor {
         throw new PreviewExecutionError(`Plugin ${stage.uses} is missing or lock-mismatched`);
       }
       if (manifest.secretRefs?.length) {
-        throw new PreviewExecutionError("Fixture preview plugins cannot request secrets");
+        throw new PreviewExecutionError("Read-only executors cannot pass secrets to plugins");
       }
       for (const declaration of Object.values(manifest.outputs)) {
         if (!schemaValidators[schemaKey(declaration.schema)]) {
@@ -1043,27 +1262,71 @@ export class PreviewExecutor {
       }
       for (const request of stage.requestedEffects ?? []) {
         const protocol = new URL(request.resourceUri).protocol;
-        if (
-          (request.effectClass !== "artifact.read" && request.effectClass !== "artifact.write") ||
-          (request.effectClass === "artifact.read" && protocol !== "fixture:") ||
-          (request.effectClass === "artifact.write" && protocol !== "preview:")
-        ) {
+        const fixtureRead = request.effectClass === "artifact.read" && protocol === "fixture:";
+        const shadowRead = this.#runtimePolicy.kind === "read_only_shadow" &&
+          (request.effectClass === "artifact.read" || request.effectClass === "network.read");
+        const previewWrite = request.effectClass === "artifact.write" && protocol === "preview:";
+        if (!(previewWrite || (this.#runtimePolicy.kind === "fixture_preview" ? fixtureRead : shadowRead))) {
           throw new PreviewExecutionError(
-            `Fixture preview forbids ${request.effectClass} on ${request.resourceUri}`,
+            `${this.#runtimePolicy.kind} forbids ${request.effectClass} on ${request.resourceUri}`,
           );
         }
       }
       if (manifest.sourceAdapter !== null) {
         for (const binding of stage.sourceBindings ?? []) {
-          if (
-            binding.effectClass !== "artifact.read" ||
-            new URL(binding.resourceUri).protocol !== "fixture:" ||
-            !binding.policyId.startsWith("fixture:")
-          ) {
-            throw new PreviewExecutionError("Preview source bindings must be synthetic fixtures");
+          if (this.#runtimePolicy.kind === "fixture_preview") {
+            if (
+              binding.effectClass !== "artifact.read" ||
+              new URL(binding.resourceUri).protocol !== "fixture:" ||
+              !binding.policyId.startsWith("fixture:")
+            ) {
+              throw new PreviewExecutionError(
+                "Fixture preview source bindings must be synthetic fixtures",
+              );
+            }
+            continue;
           }
+          const matches = this.#runtimePolicy.sourceReadGrants
+            .map((grant, index) => ({ grant, index }))
+            .filter(({ grant }) =>
+              grant.stageId === stage.id &&
+              grant.sourceAdapter === manifest.sourceAdapter &&
+              grant.policyId === binding.policyId &&
+              grant.effectClass === binding.effectClass &&
+              grant.resourceUri === binding.resourceUri &&
+              definition.partitions!.every((partition) => grant.partitions.includes(partition)) &&
+              sameStrings(grant.operations, binding.operations));
+          if (matches.length !== 1) {
+            throw new PreviewExecutionError(
+              `Shadow source ${stage.id} lacks one exact host-owned read grant`,
+            );
+          }
+          const { grant, index } = matches[0]!;
+          const request = (stage.requestedEffects ?? []).find((candidate) =>
+            candidate.effectClass === binding.effectClass &&
+            candidate.resourceUri === binding.resourceUri &&
+            sameStrings(candidate.operations, binding.operations));
+          if (!request || request.maxRecords > grant.maxRecords) {
+            throw new PreviewExecutionError(
+              `Shadow source ${stage.id} exceeds its host-owned record bound`,
+            );
+          }
+          usedShadowGrants.add(index);
         }
       }
+    }
+    if (
+      this.#runtimePolicy.kind === "fixture_preview" &&
+      this.#runtimePolicy.sourceReadGrants.length
+    ) {
+      throw new PreviewExecutionError("Fixture preview cannot accept shadow read grants");
+    }
+    if (
+      this.#runtimePolicy.kind === "read_only_shadow" &&
+      (this.#runtimePolicy.sourceReadGrants.length === 0 ||
+        usedShadowGrants.size !== this.#runtimePolicy.sourceReadGrants.length)
+    ) {
+      throw new PreviewExecutionError("Shadow runtime has missing or unused source read grants");
     }
   }
 
@@ -1189,5 +1452,45 @@ export class PreviewExecutor {
         }
       }
     }
+  }
+}
+
+export class PreviewExecutor {
+  readonly #executor: OrderedArtifactExecutor;
+
+  constructor(options: PreviewExecutorOptions) {
+    this.#executor = new OrderedArtifactExecutor(options, {
+      kind: "fixture_preview",
+      deploymentIdentity: "local-preview",
+      allowedPartitions: [...(options.definition.partitions ?? [])],
+      sourceReadGrants: [],
+    });
+  }
+
+  run(input: { partition: string; runId?: string }): Promise<PreviewExecutionReport> {
+    return this.#executor.run(input);
+  }
+}
+
+export class ReadOnlyShadowExecutor {
+  readonly #executor: OrderedArtifactExecutor;
+
+  constructor(options: ReadOnlyShadowExecutorOptions) {
+    const {
+      deploymentIdentity,
+      allowedPartitions,
+      sourceReadGrants,
+      ...executorOptions
+    } = options;
+    this.#executor = new OrderedArtifactExecutor(executorOptions, {
+      kind: "read_only_shadow",
+      deploymentIdentity,
+      allowedPartitions,
+      sourceReadGrants,
+    });
+  }
+
+  run(input: { partition: string; runId?: string }): Promise<PreviewExecutionReport> {
+    return this.#executor.run(input);
   }
 }

@@ -102,8 +102,12 @@ may mint non-expiring audit metadata with the fixed
 artifact policy, and no source payload ancestry. The provisional retention
 ceiling is separate from effective approval.
 
-Profile declarations remain deliberately inert. A narrow preview executor,
+Profile declarations remain deliberately inert. A fixture-preview executor,
 filesystem artifact store, SQLite run-state store, and synthetic fixture reader
-now exist to exercise the contracts without real source or database access.
-Apply execution, durable job workers, real source adapters, and production sinks
-remain later milestones. See `docs/PREVIEW_RUNTIME.md`.
+exercise the contracts without real data. A separate read-only shadow executor
+can dispatch only exact host-granted reads and currently has one PostgreSQL
+snapshot adapter. Shadow source artifacts carry explicit non-authoritative
+runtime provenance rather than profile-policy approval stamps, so they cannot
+be replayed as apply-ready evidence. Apply execution, durable job workers,
+external discovery adapters, and production sinks remain later milestones. See
+`docs/PREVIEW_RUNTIME.md` and `docs/POSTGRES_SNAPSHOT_ADAPTER.md`.
