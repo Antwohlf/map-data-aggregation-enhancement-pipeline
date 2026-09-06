@@ -1,5 +1,7 @@
 import { defineInertProfile } from "@map-pipeline/sdk";
 
+export * from "./fsq-preview.js";
+
 export const apizzaMichiganProfile = defineInertProfile({
   id: "apizzamichigan",
   policyVersion: 1,

@@ -5,6 +5,11 @@
   "type": "module",
   "exports": "./src/index.ts",
   "dependencies": {
-    "@map-pipeline/sdk": "*"
+    "@map-pipeline/adapter-files": "*",
+    "@map-pipeline/artifacts-filesystem": "*",
+    "@map-pipeline/core": "*",
+    "@map-pipeline/executor": "*",
+    "@map-pipeline/sdk": "*",
+    "@map-pipeline/state-sqlite": "*"
   }
 }

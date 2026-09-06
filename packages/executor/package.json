@@ -1,0 +1,11 @@
+{
+  "name": "@map-pipeline/executor",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": "./src/index.ts",
+  "dependencies": {
+    "@map-pipeline/core": "*",
+    "@map-pipeline/sdk": "*"
+  }
+}

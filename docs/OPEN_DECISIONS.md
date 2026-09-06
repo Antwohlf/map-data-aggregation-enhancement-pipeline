@@ -24,6 +24,7 @@ Confirmed through 2026-09-05:
 
 Remaining implementation gates are source-by-source terms and redistribution
 review, publication of the BuildHere field matrix and target contract, a
-verified preview execution context, real adapters/stores/sinks, iMac Node
-22/SQLite fault tests, and rehearsed no-dual-writer cutovers. None of these
-profiles can apply today.
+production-grade out-of-process apply executor, real adapters/sinks, iMac
+Node 22/SQLite fault tests, and rehearsed no-dual-writer cutovers. The narrow
+synthetic APizza/FSQ preview is executable, but none of these profiles can
+apply today.

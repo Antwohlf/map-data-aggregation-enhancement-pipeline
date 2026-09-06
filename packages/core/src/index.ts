@@ -1,5 +1,9 @@
 export * from "./admission.js";
-export { EffectDeniedError } from "./authorization.js";
+export * from "./execution.js";
+export {
+  assertPreviewEffectAuthorized,
+  EffectDeniedError,
+} from "./authorization.js";
 export * from "./identity.js";
 export * from "./migration.js";
 export * from "./readiness.js";

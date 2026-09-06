@@ -15,10 +15,13 @@ is at least once, so writable sinks must be transactional and idempotent. A
 source acquisition checkpoint advances only after its artifact is finalized;
 a delivery watermark advances only after all required sinks verify receipts.
 
-Every plugin runs as supervised trusted code with a scrubbed environment. That
-is process isolation, not a security sandbox. The runtime broker authorizes
-effects, while database roles/functions, OS credential access, and deployment
-identity enforce the boundary outside the plugin process.
+The target runtime runs every plugin as supervised trusted code with a scrubbed
+environment. That future process isolation is not itself a security sandbox.
+The current preview runtime is in-process and does not yet scrub ambient Node
+authority; its broker controls only broker-mediated operations. The runtime
+broker authorizes effects, while database roles/functions, OS credential
+access, and deployment identity enforce the boundary outside the plugin
+process.
 
 A pipeline definition requests effects. A product profile states policy, and a
 trusted deployment manifest grants the exact profile, stage, identity,
@@ -27,11 +30,13 @@ is possible. The deployment pins canonical digests of the exact definition,
 profile policy, plugin catalog, target contract, and host policy. The
 authorization context recomputes those digests, then snapshots and freezes all
 five documents; a caller cannot swap a same-ID profile policy after readiness.
-Host limits and admission groups come from one host-owned policy shared by
-every profile on that machine. Plugins do not provide the record count used for
-authorization; the broker derives it from broker-owned dataset metadata or the
-completed operation. Plugin context contains secret identifiers, never
-resolved secret values.
+The target scheduler obtains host limits and admission groups from one
+host-owned policy shared by every profile on that machine. The current preview
+executor performs static per-run reservation checks only; shared admission
+leases remain an implementation gate. Plugins do not provide the record count
+used for authorization; the broker derives it from broker-owned dataset
+metadata or the completed operation. Plugin context contains secret
+identifiers, never resolved secret values.
 
 Job identity includes profile, pipeline and version, task, plugin and version,
 entity, and mode. Checkpoint identity also includes stage, source namespace,
@@ -51,9 +56,12 @@ over-retained, or incompletely licensed outputs fail closed. Per-child sources
 must map every observed child identity to its own terms reference.
 
 The broker, rather than the plugin, mints each `DatasetRef`. An authorized read
-returns an opaque acquisition handle. The broker derives observed child IDs,
-schema, payload field names, digests, and record counts while staging the
-artifact, then copies the approved policy ID, adapter, effect, operations,
+returns an opaque acquisition handle and dispatches through the exact adapter
+identity declared by the source plugin, not merely the URI scheme. The broker
+requires the adapter-reported schema identity to match the declared output and
+runs the host-owned validator for that schema version. It derives payload field
+names, digests, and record counts while staging the artifact, then copies the
+approved policy ID, adapter, effect, operations,
 resource, output port, child identities, profile ID, policy version/digest,
 artifact class, restrictions, and calculated expiry into the final reference.
 Runtime consumers validate every output through the frozen authorization
@@ -68,15 +76,19 @@ invocation with explicit run and stage-run identities. Missing, extra,
 wrong-producer, foreign-profile, stale-policy, noncanonical-retention, and
 expired inputs are rejected. The plugin receives an invocation-bound broker
 facade and cannot select an invocation on individual calls. The executor closes
-the invocation in a `finally` boundary, so cached broker operations and
-capabilities cannot be replayed. Transform and review staging/finalization
+the invocation at the plugin-return boundary, aborts and drains outstanding
+work, and fails a stage whose plugin returned with an unawaited broker call, so
+cached broker operations and capabilities cannot be replayed. Transform and review staging/finalization
 accepts only that invocation, never a plugin-supplied parent list. The broker
 therefore preserves the complete source-policy ancestry, earliest expiry, most
 restrictive redistribution decision, and union of attribution requirements.
 Consumer mutations (`canonical.write` and `public.write`) require a registered
 input belonging to the same invocation. Artifact, evidence, and review writes
 use a separate one-shot capability bound to the invocation, declared output
-port, and broker-owned staged artifact. State writes use a one-shot capability
+port, and broker-owned staged artifact. Required output adapters receive
+broker-minted opaque delivery receipts bound to their exact port, dataset
+handle, and content digest; a plugin cannot validate a self-authored receipt.
+State writes use a one-shot capability
 bound to a broker-owned checkpoint proposal digest. `public.write` re-resolves
 every ancestry stamp against the frozen current profile and rejects unrelated,
 expired, malformed, foreign, stale, revoked, or redistribution-forbidden
@@ -90,6 +102,8 @@ may mint non-expiring audit metadata with the fixed
 artifact policy, and no source payload ancestry. The provisional retention
 ceiling is separate from effective approval.
 
-Profile declarations in this scaffold are deliberately inert. Execution,
-state-store, job-store, artifact-store, and production adapter implementations
-are later milestones.
+Profile declarations remain deliberately inert. A narrow preview executor,
+filesystem artifact store, SQLite run-state store, and synthetic fixture reader
+now exist to exercise the contracts without real source or database access.
+Apply execution, durable job workers, real source adapters, and production sinks
+remain later milestones. See `docs/PREVIEW_RUNTIME.md`.

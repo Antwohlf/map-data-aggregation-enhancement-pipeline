@@ -1,4 +1,5 @@
 import type {
+  CanonicalJson,
   DatasetHandle,
   DatasetRef,
   DeliveryReceipt,
@@ -12,10 +13,17 @@ export interface StageInputs {
   [port: string]: DatasetHandle;
 }
 
+declare const DELIVERY_RECEIPT: unique symbol;
+
+/** Opaque receipt minted and registered by the broker after a verified output commit. */
+export interface BrokerDeliveryReceipt extends DeliveryReceipt {
+  readonly [DELIVERY_RECEIPT]: true;
+}
+
 export interface StageResult {
   outputs: Record<string, DatasetHandle>;
   metrics: Record<string, number>;
-  deliveryReceipts?: DeliveryReceipt[];
+  deliveryReceipts?: BrokerDeliveryReceipt[];
 }
 
 /**
@@ -68,6 +76,8 @@ export interface StageBroker {
   requestEffect(request: BrokerMutationEffectRequest): Promise<void>;
   /** Performs an authorized read and records its observed child identities. */
   acquire(request: BrokerReadEffectRequest): Promise<BrokerAcquisitionHandle>;
+  /** Reads a finalized input through the broker after registry verification. */
+  readDatasetJson(dataset: DatasetHandle): Promise<CanonicalJson>;
   /**
    * Inspects bytes at the authorized URI, derives schema/fields/digests/count,
    * and registers them against the acquisition and declared output port.
@@ -99,6 +109,11 @@ export interface StageBroker {
     outputPort: string;
     artifactUri: string;
   }): Promise<BrokerStagedArtifactHandle>;
+  /** Stages canonical JSON without exposing an artifact-store path to a plugin. */
+  stageDerivedJson(input: {
+    outputPort: string;
+    value: CanonicalJson;
+  }): Promise<BrokerStagedArtifactHandle>;
   /** Persists the staged output through an internal one-shot output capability. */
   finalizeDerivedArtifact(input: {
     stagedArtifact: BrokerStagedArtifactHandle;
@@ -114,7 +129,9 @@ export interface StageBroker {
     effectClass: OutputEffectClass;
     resourceUri: string;
     operation: string;
-  }): Promise<DatasetRef>;
+    idempotencyKey: string;
+    targetVersion: string;
+  }): Promise<{ output: DatasetRef; receipt: BrokerDeliveryReceipt }>;
   /**
    * Hashes and commits a checkpoint/state proposal through a one-shot
    * invocation-bound state capability.

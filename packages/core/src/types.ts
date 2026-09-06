@@ -134,6 +134,8 @@ export interface PipelineDefinition {
     version: number;
   };
   profile: string;
+  /** Exact run partitions this definition permits, when constrained. */
+  partitions?: string[];
   stages: StageDefinition[];
   requiredSinks: string[];
   optionalSinks: string[];
@@ -271,6 +273,7 @@ export type DatasetHandle = DatasetRef | EphemeralDatasetHandle;
 
 export interface DeliveryReceipt {
   idempotencyKey: string;
+  outputPort: string;
   payloadHash: string;
   targetVersion: string;
   outcome: "created" | "updated" | "no_op" | "conflict";

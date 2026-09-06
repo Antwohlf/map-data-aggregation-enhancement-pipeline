@@ -20,7 +20,7 @@
   },
   "type": "module",
   "engines": {
-    "node": "^22.0.0 || ^24.0.0"
+    "node": ">=22.13.0 <23 || >=24.0.0 <25"
   },
   "workspaces": [
     "packages/*",
@@ -30,6 +30,7 @@
     "check": "tsc --noEmit",
     "test": "tsx --test 'packages/**/*.test.ts' 'profiles/**/*.test.ts'",
     "validate:example": "tsx packages/cli/src/main.ts validate --definition examples/synthetic-pipeline.json --catalog examples/plugin-catalog.json",
+    "preview:apizza-fsq": "tsx profiles/apizzamichigan/src/run-fsq-preview.ts",
     "audit:public": "node scripts/audit-public-files.mjs"
   },
   "devDependencies": {
