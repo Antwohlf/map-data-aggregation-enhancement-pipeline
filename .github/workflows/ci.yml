@@ -28,3 +28,58 @@ jobs:
       - run: npm run preview:apizza-fsq -- --runtime-root "$RUNNER_TEMP/apizza-fsq-preview" --run-id "ci-${{ matrix.node }}"
       - run: npm run audit:public
       - run: npm audit --audit-level=high
+
+  postgres-integration:
+    runs-on: ubuntu-24.04
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: pizza_enrichment
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d pizza_enrichment"
+          --health-interval 2s
+          --health-timeout 5s
+          --health-retries 15
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 22.13.0
+          cache: npm
+      - run: npm ci
+      - run: npm run check
+      - run: npm run test:postgres
+        env:
+          MAP_PIPELINE_TEST_POSTGRES_ADMIN_URL: postgresql://postgres@127.0.0.1:5432/pizza_enrichment
+
+  postgres-provision-integration:
+    runs-on: ubuntu-24.04
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: pizza_enrichment
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d pizza_enrichment"
+          --health-interval 2s
+          --health-timeout 5s
+          --health-retries 15
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 22.13.0
+          cache: npm
+      - run: sudo apt-get update && sudo apt-get install --yes postgresql-client
+      - run: npm ci
+      - run: npm run check
+      - run: npm run test:postgres-provision
+        env:
+          MAP_PIPELINE_TEST_POSTGRES_PROVISION_URL: postgresql://postgres@127.0.0.1:5432/pizza_enrichment

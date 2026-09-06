@@ -4,6 +4,7 @@ import { resolve, sep } from "node:path";
 
 import {
   type CanonicalJson,
+  digest,
   type ResourceReadResult,
   type ResourceReader,
   type StagePluginManifest,
@@ -58,10 +59,16 @@ export class FixtureJsonResourceReader implements ResourceReader {
   async read(input: {
     resourceUri: string;
     operation: string;
+    partition: string;
+    maxRecords: number;
     maxBytes: number;
+    timeoutMs: number;
     signal: AbortSignal;
   }): Promise<ResourceReadResult> {
     if (input.operation !== "read") throw new Error("Fixture adapter supports only read");
+    if (!Number.isSafeInteger(input.maxRecords) || input.maxRecords < 0) {
+      throw new TypeError("Fixture record limit must be a non-negative safe integer");
+    }
     if (!Number.isSafeInteger(input.maxBytes) || input.maxBytes < 0) {
       throw new TypeError("Fixture byte limit must be a non-negative safe integer");
     }
@@ -112,10 +119,44 @@ export class FixtureJsonResourceReader implements ResourceReader {
     if (actualDigest !== entry.contentDigest) {
       throw new Error("Fixture content digest does not match its manifest");
     }
+    const wrapped = value && typeof value === "object" && !Array.isArray(value)
+      ? ["records", "rows", "places", "features"]
+        .map((field) => value[field])
+        .filter(Array.isArray)
+      : [];
+    if (wrapped.length > 1) {
+      throw new Error("Fixture has multiple recognized record arrays");
+    }
+    const records = Array.isArray(value)
+      ? value.length
+      : value === null ? 0 : wrapped[0]?.length ?? 1;
+    if (records > input.maxRecords) {
+      throw new Error(`Fixture contains ${records} records; limit is ${input.maxRecords}`);
+    }
     return {
       value,
       observedChildIds: [],
       schema: { ...entry.schema },
+      snapshot: {
+        snapshotId: actualDigest,
+        sourceInstanceDigest: null,
+        readerBindingDigest: digest({
+          adapter: "files",
+          resourceUri: input.resourceUri,
+          operation: input.operation,
+          schema: entry.schema,
+          contentDigest: actualDigest,
+        }),
+        capturedAt: null,
+        consistency: "immutable",
+        cursorSchema: null,
+        startExclusive: null,
+        endInclusive: null,
+        complete: true,
+        contractName: entry.schema.name,
+        contractVersion: entry.schema.version,
+        contractDigest: entry.contentDigest,
+      },
     };
   }
 }

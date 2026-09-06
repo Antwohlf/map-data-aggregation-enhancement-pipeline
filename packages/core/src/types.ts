@@ -1,3 +1,5 @@
+import type { CanonicalJson } from "./identity.js";
+
 export const PIPELINE_API_VERSION = "mapdata.pipeline/v1alpha1" as const;
 
 export type PipelineMode = "validate" | "plan" | "preview" | "apply";
@@ -221,6 +223,24 @@ export interface SourcePolicyStamp {
   sourcePolicyId: string;
 }
 
+/** Broker-carried proof that a source acquisition is one complete bounded snapshot. */
+export interface SourceSnapshotDescriptor {
+  snapshotId: string;
+  /** Non-secret digest of a stable source-instance identifier, when applicable. */
+  sourceInstanceDigest: string | null;
+  /** Digest of the exact host-owned reader binding used for this acquisition. */
+  readerBindingDigest: string;
+  capturedAt: string | null;
+  consistency: "immutable" | "repeatable_read";
+  cursorSchema: SchemaRef | null;
+  startExclusive: CanonicalJson | null;
+  endInclusive: CanonicalJson | null;
+  complete: true;
+  contractName: string;
+  contractVersion: number;
+  contractDigest: string;
+}
+
 export interface DatasetRestrictions {
   sourcePolicies: SourcePolicyStamp[];
   redistribution: "forbidden" | "approved";
@@ -240,6 +260,28 @@ export interface SourceDatasetProvenance {
   operations: string[];
   outputPort: string;
   childIds: string[];
+  snapshot: SourceSnapshotDescriptor;
+}
+
+/**
+ * Provenance for artifacts created by the non-authoritative fixture/shadow
+ * executors. It is deliberately not a SourcePolicyStamp and is never
+ * apply-ready evidence.
+ */
+export interface PreviewSourceDatasetProvenance {
+  kind: "preview_source";
+  runtimeClass: "fixture_preview" | "read_only_shadow";
+  runtimePolicyDigest: string;
+  producingStageId: string;
+  profileId: string;
+  bindingPolicyId: string;
+  sourceAdapter: string;
+  effectClass: Extract<EffectClass, "network.read" | "artifact.read">;
+  resourceUri: string;
+  operations: string[];
+  outputPort: string;
+  childIds: string[];
+  snapshot: SourceSnapshotDescriptor;
 }
 
 export interface InternalDatasetProvenance {
@@ -257,6 +299,7 @@ export interface BrokerAuditDatasetProvenance {
 
 export type DatasetProvenance =
   | SourceDatasetProvenance
+  | PreviewSourceDatasetProvenance
   | InternalDatasetProvenance
   | BrokerAuditDatasetProvenance;
 

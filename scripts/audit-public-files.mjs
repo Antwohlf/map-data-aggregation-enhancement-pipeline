@@ -32,10 +32,19 @@ const hostName = /\b[a-z0-9.-]+\.local\b/i;
 const credentialNames = [
   ["service", "role", "key"].join("_"),
   ["database", "url"].join("_"),
+  ["direct", "url"].join("_"),
   ["api", "key"].join("_"),
+  ["pg", "password"].join(""),
+  ["db", "password"].join("_"),
+  ["postgres", "password"].join("_"),
+  ["supabase", "db", "password"].join("_"),
 ].join("|");
 const credentialAssignment = new RegExp(
   `(?:${credentialNames})\\s*[=:]\\s*[^\\s<{]`,
+  "i",
+);
+const postgresCredentialUri = new RegExp(
+  ["postgres(?:ql)?", "://", "[^\\s:/@]+", ":", "[^\\s/@]+", "@"].join(""),
   "i",
 );
 
@@ -55,6 +64,9 @@ function scanBytes(label, bytes) {
   if (hostName.test(value)) errors.push(`${label}: contains a local hostname`);
   if (credentialAssignment.test(value)) {
     errors.push(`${label}: resembles a credential assignment`);
+  }
+  if (postgresCredentialUri.test(value)) {
+    errors.push(`${label}: contains a password-bearing PostgreSQL URI`);
   }
 }
 

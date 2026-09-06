@@ -51,8 +51,12 @@ additions do not grant source authority or publication permission.
   output handle, port, and content digest.
 - The APizza run records all three stage attempts; the SQLite store separately
   has a close/reopen persistence test for run, attempt, and checkpoint data.
-- Preview construction rejects network, database, evidence, review, canonical,
-  and public effects.
+- Fixture-preview construction rejects network, database, evidence, review,
+  canonical, and public effects. A distinct read-only shadow executor accepts
+  only exact host-granted reads and still rejects every non-preview write.
+- The first canonical-input contract and PostgreSQL snapshot adapter now pin a
+  private view, exact safe columns/types, a unique bounded cursor, database and
+  role identity, repeatable-read snapshot, and view/contract digests.
 
 ## Missing parity gates
 
@@ -65,15 +69,15 @@ record-by-record database-backed comparison is claimed.
 
 Before any shadow run, this slice still needs:
 
-1. A read-only canonical snapshot adapter with a PII-free, versioned schema.
-2. The current scope, distance, name, and routing rules as APizza-owned
+1. The current scope, distance, name, and routing rules as APizza-owned
    transforms with golden parity cases.
-3. A report that diffs every normalized and routed record against the legacy
+2. A report that diffs every normalized and routed record against the legacy
    runner at the pinned script and scope-config commits, including malformed
    shapes, duplicate IDs, scope boundaries, future closure, and every alias.
-4. Restart, fault, artifact-backup, and restore tests required by Phase 1.
-5. Approved source terms and a real acquisition adapter. Synthetic approval is
+3. Restart, fault, artifact-backup, and restore tests required by Phase 1.
+4. Approved source terms and a real acquisition adapter. Synthetic approval is
    not FSQ source approval.
-6. Multiple complete shadow runs with every writable sink absent.
+5. Provisioning and multiple complete shadow runs with every writable sink
+   absent.
 
 The iMac scheduler and all legacy writers remain unchanged and authoritative.
