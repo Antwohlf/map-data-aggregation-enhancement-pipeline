@@ -1,6 +1,6 @@
 # APizzaMichigan FSQ migration slice
 
-Status: synthetic preview only; no cutover authority.
+Status: synthetic normalization preview plus pure matching transform; no cutover authority.
 
 This implementation formally selects FSQ as the first executable
 APizzaMichigan extraction slice. FSQ was chosen
@@ -57,23 +57,28 @@ additions do not grant source authority or publication permission.
 - The first canonical-input contract and PostgreSQL snapshot adapter now pin a
   private view, exact safe columns/types, a unique bounded cursor, database and
   role identity, repeatable-read snapshot, and view/contract digests.
+- The APizza-owned pure v1 matcher now accepts normalized candidates plus the
+  complete canonical snapshot, simulates the legacy candidate prefetch/grid,
+  and emits deterministic, authority-safe decisions and a reconciled report.
+  Synthetic goldens cover all thresholds, legacy name/identifier quirks,
+  top-ten pruning, method-agnostic ranking, closed routing, missing source IDs,
+  and UTF-8 tie-breaking. See `docs/APIZZA_MATCHING_V1.md`.
 
 ## Missing parity gates
 
-The preview ports the legacy geographic eligibility filter, but the legacy
-report also performs canonical database lookup, distance/name matching,
-evidence routing, and review-candidate classification. Those stages are not
-represented yet. A read-only attempt to run the complete legacy report against
-the synthetic fixture could not connect to local Postgres, so no
-record-by-record database-backed comparison is claimed.
+The source-audited matching transform is represented, but it is not yet wired
+into a complete executable shadow definition with real FSQ input and the
+PostgreSQL snapshot adapter. No record-by-record database-backed comparison is
+claimed yet.
 
 Before any shadow run, this slice still needs:
 
-1. The current scope, distance, name, and routing rules as APizza-owned
-   transforms with golden parity cases.
-2. A report that diffs every normalized and routed record against the legacy
+1. An independently captured report that diffs every normalized and routed record against the legacy
    runner at the pinned script and scope-config commits, including malformed
    shapes, duplicate IDs, scope boundaries, future closure, and every alias.
+2. A complete read-only shadow definition and host composition joining real
+   FSQ acquisition/normalization, the canonical snapshot, matching, and a
+   terminal verified report.
 3. Restart, fault, artifact-backup, and restore tests required by Phase 1.
 4. Approved source terms and a real acquisition adapter. Synthetic approval is
    not FSQ source approval.

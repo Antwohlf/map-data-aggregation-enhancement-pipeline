@@ -1,5 +1,6 @@
 import {
   PIPELINE_API_VERSION,
+  canonicalize,
   createObservationId,
   createSourceRecordKey,
   digest,
@@ -12,9 +13,15 @@ import {
 } from "@map-pipeline/core";
 import { createJsonFixtureSourcePlugin } from "@map-pipeline/adapter-files";
 import { definePlugin, type StagePlugin } from "@map-pipeline/sdk";
+import {
+  APIZZA_SOURCE_CANDIDATE_SCHEMA,
+  classifyApizzaCandidateRouteV1,
+  normalizeApizzaCandidateTextV1 as normalizeText,
+  type ApizzaCandidateRouteV1,
+} from "./candidate-v1.js";
 
 const RAW_SCHEMA = { name: "apizza.fsq.synthetic-document", version: 1 } as const;
-const CANDIDATE_SCHEMA = { name: "apizza.source-candidate", version: 1 } as const;
+const CANDIDATE_SCHEMA = APIZZA_SOURCE_CANDIDATE_SCHEMA;
 const REPORT_SCHEMA = { name: "apizza.preview-report", version: 1 } as const;
 const FIXTURE_URI = "fixture://synthetic/apizza-fsq-records";
 
@@ -184,12 +191,7 @@ interface FixtureDocument {
   rows: SyntheticFsqRow[];
 }
 
-type CandidateRoute =
-  | "ready_for_match"
-  | "closed_evidence_candidate"
-  | "filtered_non_pizza"
-  | "excluded_unusable"
-  | "excluded_out_of_scope";
+export type CandidateRoute = ApizzaCandidateRouteV1;
 
 interface CandidatePayload {
   source: "fsq_os_places";
@@ -257,6 +259,9 @@ const validateRawDocument: CanonicalJsonValidator = (value) => {
 
 const validateCandidates: CanonicalJsonValidator = (value) => {
   if (!Array.isArray(value)) throw new TypeError("Candidate output must be an array");
+  let partition: string | null = null;
+  let priorKey: [string, string] | null = null;
+  let priorCanonical: string | null = null;
   for (const candidate of value) {
     assertRecord(candidate, "Candidate");
     assertRecord(candidate.source, "Candidate source");
@@ -333,6 +338,35 @@ const validateCandidates: CanonicalJsonValidator = (value) => {
         throw new TypeError("Candidate lineage does not match its contract");
       }
     }
+    const { route, ...payloadWithoutRoute } = candidate.payload;
+    if (route !== classifyApizzaCandidateRouteV1(
+      payloadWithoutRoute as Omit<CandidatePayload, "route">,
+    )) {
+      throw new TypeError("Candidate route contradicts its payload");
+    }
+    if (partition !== null && candidate.partition !== partition) {
+      throw new TypeError("Candidate output cannot mix partitions");
+    }
+    partition = candidate.partition;
+    const currentKey: [string, string] = [candidate.sourceRecordKey, candidate.observationId];
+    const currentCanonical = canonicalize(candidate as CanonicalJson);
+    if (priorKey && (
+      Buffer.compare(Buffer.from(currentKey[0], "utf8"), Buffer.from(priorKey[0], "utf8")) < 0 ||
+      (currentKey[0] === priorKey[0] &&
+        Buffer.compare(Buffer.from(currentKey[1], "utf8"), Buffer.from(priorKey[1], "utf8")) < 0)
+    )) {
+      throw new TypeError("Candidates must be canonically ordered by source record and observation ID");
+    }
+    if (
+      priorKey &&
+      currentKey[0] === priorKey[0] &&
+      currentKey[1] === priorKey[1] &&
+      currentCanonical !== priorCanonical
+    ) {
+      throw new TypeError("Duplicate candidate identities must have identical content");
+    }
+    priorKey = currentKey;
+    priorCanonical = currentCanonical;
   }
 };
 
@@ -380,24 +414,6 @@ export const apizzaFsqPreviewSchemaValidators: Readonly<
   [`${REPORT_SCHEMA.name}@${REPORT_SCHEMA.version}`]: validateReport,
 });
 
-const LEGACY_PIZZA_TERMS = [
-  "apizza",
-  "flatbread",
-  "italian restaurant",
-  "pizza",
-  "pizzeria",
-  "slice",
-  "wood fired",
-  "wood-fired",
-];
-
-const LEGACY_SCOPE = [
-  { bbox: [41.6, -90.5, 48.4, -82.1], regionCodes: [] },
-  { bbox: [40.4, -79.8, 45.1, -71.7], regionCodes: ["NY"] },
-  { bbox: [32.4, -124.5, 42.1, -114.1], regionCodes: [] },
-  { bbox: [25.8, -106.7, 36.6, -93.5], regionCodes: [] },
-] as const;
-
 function caseMap(row: SyntheticFsqRow): Map<string, unknown> {
   return new Map(
     Object.entries(row).map(([key, value]) => [key.toLowerCase(), value]),
@@ -443,52 +459,8 @@ function firstString(value: unknown): string | null {
   return flattenStrings(value)[0] || (value ? String(value) : null);
 }
 
-function normalizeText(value: unknown): string {
-  return String(value ?? "")
-    .toLowerCase()
-    .normalize("NFKD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/&/g, " and ")
-    .replace(/[^a-z0-9]+/g, " ")
-    .trim()
-    .replace(/\s+/g, " ");
-}
-
 function stringOrNull(value: unknown): string | null {
   return value == null ? null : String(value);
-}
-
-function isWithinLegacyScope(payload: Omit<CandidatePayload, "route">): boolean {
-  if (payload.lat === null || payload.lng === null) return false;
-  return LEGACY_SCOPE.some(({ bbox, regionCodes }) => {
-    const [south, west, north, east] = bbox;
-    if (
-      payload.lat! < south || payload.lat! > north ||
-      payload.lng! < west || payload.lng! > east
-    ) return false;
-    if (!regionCodes.length) return true;
-    const region = String(payload.region ?? "").trim().toUpperCase();
-    return !region || (regionCodes as readonly string[]).includes(region);
-  });
-}
-
-function isLegacyPizzaCandidate(payload: Omit<CandidatePayload, "route">): boolean {
-  const haystack = normalizeText([
-    payload.name,
-    payload.categories.join(" "),
-    payload.website,
-    payload.source_url,
-  ].join(" "));
-  return LEGACY_PIZZA_TERMS.some((term) => haystack.includes(term));
-}
-
-function routeFor(payload: Omit<CandidatePayload, "route">): CandidateRoute {
-  if (!payload.name || payload.lat === null || payload.lng === null) {
-    return "excluded_unusable";
-  }
-  if (!isWithinLegacyScope(payload)) return "excluded_out_of_scope";
-  if (!isLegacyPizzaCandidate(payload)) return "filtered_non_pizza";
-  return payload.is_closed ? "closed_evidence_candidate" : "ready_for_match";
 }
 
 function isClosedDateValue(value: unknown, evaluationTimeMs: number): boolean {
@@ -594,7 +566,7 @@ export function normalizeSyntheticFsqDocument(
     const sourceId = payloadWithoutRoute.source_id;
     const payload: CandidatePayload = {
       ...payloadWithoutRoute,
-      route: routeFor(payloadWithoutRoute),
+      route: classifyApizzaCandidateRouteV1(payloadWithoutRoute),
     };
     const identity = sourceId ?? `fallback-v1:${digest({
       name: normalizeText(payload.name),
@@ -636,8 +608,8 @@ export function normalizeSyntheticFsqDocument(
       }],
     };
   }).sort((left, right) =>
-    left.sourceRecordKey.localeCompare(right.sourceRecordKey) ||
-    left.observationId.localeCompare(right.observationId));
+    Buffer.compare(Buffer.from(left.sourceRecordKey, "utf8"), Buffer.from(right.sourceRecordKey, "utf8")) ||
+    Buffer.compare(Buffer.from(left.observationId, "utf8"), Buffer.from(right.observationId, "utf8")));
 }
 
 const normalizePlugin = definePlugin<{ evaluationTime: string }>({

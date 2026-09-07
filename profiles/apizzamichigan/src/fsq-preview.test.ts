@@ -242,6 +242,34 @@ test("canonical candidate order is stable for duplicate source IDs", () => {
     digest(forward as unknown as CanonicalJson),
     digest(reverse as unknown as CanonicalJson),
   );
+  const validator = apizzaFsqPreviewSchemaValidators["apizza.source-candidate@1"]!;
+  assert.doesNotThrow(() => validator(forward as unknown as CanonicalJson));
+  assert.throws(
+    () => validator([...forward].reverse() as unknown as CanonicalJson),
+    /canonically ordered/,
+  );
+  const identical = normalizeSyntheticFsqDocument({
+    fixtureId: "identical-duplicates",
+    license: "CC0-1.0",
+    synthetic: true,
+    rows: [rows[0]!, rows[0]!],
+  }, context);
+  assert.equal(identical.length, 2);
+  assert.equal(identical[0]?.sourceRecordKey, identical[1]?.sourceRecordKey);
+  assert.equal(identical[0]?.observationId, identical[1]?.observationId);
+  assert.doesNotThrow(() => validator(identical as unknown as CanonicalJson));
+  const conflictingIdentity = structuredClone(identical);
+  conflictingIdentity[1]!.payload.name = "Conflicting Pizza";
+  assert.throws(
+    () => validator(conflictingIdentity as unknown as CanonicalJson),
+    /identities must have identical content/,
+  );
+  const mixedPartitions = structuredClone(forward);
+  mixedPartitions[1]!.partition = "MI";
+  assert.throws(
+    () => validator(mixedPartitions as unknown as CanonicalJson),
+    /cannot mix partitions/,
+  );
 });
 
 test("preserves the legacy FSQ normalization field contract before matching", () => {
