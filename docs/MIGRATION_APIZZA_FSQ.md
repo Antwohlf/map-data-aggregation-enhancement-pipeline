@@ -1,6 +1,7 @@
 # APizzaMichigan FSQ migration slice
 
-Status: synthetic normalization preview plus pure matching transform; no cutover authority.
+Status: complete read-only shadow composition on synthetic host inputs; no
+real-data policy approval or cutover authority.
 
 This implementation formally selects FSQ as the first executable
 APizzaMichigan extraction slice. FSQ was chosen
@@ -63,26 +64,45 @@ additions do not grant source authority or publication permission.
   Synthetic goldens cover all thresholds, legacy name/identifier quirks,
   top-ten pruning, method-agnostic ranking, closed routing, missing source IDs,
   and UTF-8 tie-breaking. See `docs/APIZZA_MATCHING_V1.md`.
+- The five-stage read-only shadow definition now joins a bounded FSQ OS release
+  projection, real-row normalization, the canonical PostgreSQL snapshot,
+  matching, and an independently reconciled required report sink.
+- The FSQ projection is validated against an exact 15-field contract before it
+  becomes a broker-owned ephemeral dataset. The registry-owned raw value is
+  released after normalization and never enters the artifact store or SQLite
+  state; trusted in-process normalization temporarily receives a separate
+  memory copy.
+- Downstream artifacts retain the exact FSQ and PostgreSQL source attestations,
+  while the terminal report contains only counts and digests. Tests exercise
+  active and closed rows, reject unknown/private fields before persistence, and
+  prove the definition contains no product, evidence, review, or state writer.
+- No real-data host runner is shipped yet. Credential isolation, policy
+  attestation, privacy classification, and measured iMac resource bounds are
+  explicit activation gates.
 
 ## Missing parity gates
 
-The source-audited matching transform is represented, but it is not yet wired
-into a complete executable shadow definition with real FSQ input and the
-PostgreSQL snapshot adapter. No record-by-record database-backed comparison is
-claimed yet.
+The source-audited matching transform is wired into a complete executable
+shadow definition, but it has only been exercised with synthetic inputs. No
+record-by-record database-backed legacy comparison is claimed yet.
 
 Before any shadow run, this slice still needs:
 
 1. An independently captured report that diffs every normalized and routed record against the legacy
    runner at the pinned script and scope-config commits, including malformed
    shapes, duplicate IDs, scope boundaries, future closure, and every alias.
-2. A complete read-only shadow definition and host composition joining real
-   FSQ acquisition/normalization, the canonical snapshot, matching, and a
-   terminal verified report.
+2. A recorded decision for the pre-existing FSQ projection file: an explicit
+   zero-day raw-file exception, classification as an approved restricted
+   projection with documented privacy controls, or replacement with a true
+   streaming acquisition adapter.
 3. Restart, fault, artifact-backup, and restore tests required by Phase 1.
-4. Approved source terms and a real acquisition adapter. Synthetic approval is
-   not FSQ source approval.
-5. Provisioning and multiple complete shadow runs with every writable sink
+4. Approved source terms and an exact release/NOTICE record. Synthetic approval
+   is not FSQ source approval.
+5. Provisioning and multiple complete shadow runs with every product writer
    absent.
+
+The legacy FSQ exporters currently discard closed rows and must not be reused
+unchanged for parity. The v1 release contract requires closed rows so both the
+active and closed-evidence paths are represented.
 
 The iMac scheduler and all legacy writers remain unchanged and authoritative.

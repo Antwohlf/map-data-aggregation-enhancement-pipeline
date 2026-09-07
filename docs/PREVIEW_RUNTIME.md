@@ -14,6 +14,10 @@ state and artifacts while every real product profile remains fail-closed.
   signaling and draining of in-flight broker calls before durable failure. A
   plugin that returns with a broker call still in flight fails its stage.
 - A run-scoped broker registry for all dataset handles.
+- Broker-owned ephemeral source datasets that are schema-validated before
+  registration, reference-counted by declared consumers, and whose registry
+  copy is released after the final consumer or run failure without creating a
+  source artifact.
 - A fixture runtime with broker-authorized `fixture://` reads and
   `preview://` artifact writes only.
 - A separately constructed read-only shadow runtime with exact host-owned
@@ -43,6 +47,23 @@ Run it with:
 npm run preview:apizza-fsq -- --partition US
 ```
 
+The APizza read-only shadow composition is also executable:
+
+```text
+digest-pinned bounded FSQ OS release projection (ephemeral)
+  -> APizza normalization and routing (derived artifact)
+  -> attested read-only canonical PostgreSQL snapshot
+  -> APizza matching decisions and report
+  -> independently reconciled, receipt-backed shadow report
+```
+
+The composition currently has no real-data host runner. This is intentional:
+there is not yet a trusted source-policy attestation, reviewed FSQ privacy
+classification, isolated credential boundary, or measured iMac memory budget.
+Tests construct exact synthetic host resources directly. A future runner must
+derive static database identities from the checked-in contract and accept only
+host-specific instance/view attestations.
+
 Use `--runtime-root <path>` to keep state and artifacts elsewhere. Disk
 admission is measured on the filesystem that contains that runtime root. The default
 is `.map-pipeline/apizza-fsq-preview`, which is excluded from Git and the public
@@ -63,6 +84,10 @@ Shadow artifacts are explicitly marked `preview_source`, carry the shadow
 runtime-policy digest and source-snapshot descriptor, and have no approved
 profile-policy stamps. This makes the non-authoritative boundary machine
 checkable: apply readiness cannot accept them as production source evidence.
+The runtime-policy digest covers the full definition including pinned
+evaluation time, the complete catalog, host policy, deployment identity, and
+exact source-read grants. Derived artifacts preserve both FSQ and PostgreSQL
+source attestations transitively even after the raw in-memory value is erased.
 
 Plugins are trusted, in-process Node.js code in this milestone. They retain
 ambient process authority and can bypass the broker by importing Node APIs;
@@ -74,7 +99,13 @@ credential/environment isolation exist.
 The fixture source is not a legal approval for Foursquare data and contains no
 Foursquare records. It exists to exercise APizza-specific mapping and routing.
 The real `apizza-fsq-v1` source policy therefore remains pending, forbidden,
-and deployment-disabled.
+and deployment-disabled. The new FSQ shadow contract accepts only an exact
+15-field restricted projection, including closed rows, and rejects unknown
+fields, oversized values, malformed dates, invalid coordinates, and
+removal/privacy flags before durable normalization. Its ephemeral broker
+handoff prevents a persistent raw artifact; in-process consumption still
+creates a temporary memory copy. It does not authorize any pre-existing disk
+file required by the file reader.
 
 ## Not yet implemented
 
@@ -89,9 +120,10 @@ and deployment-disabled.
 - Restart/resume from a partially completed run.
 - Durable job workers, claims, heartbeats, retries, or cancellation recovery.
 - Artifact garbage collection, backup, and restore rehearsal.
-- A complete APizza shadow definition, terminal verified match report, and
-  independently captured record-by-record legacy parity evidence. The pure
-  APizza matcher and its synthetic source-audited goldens are implemented.
+- An independently captured record-by-record legacy parity oracle and two
+  repeatable zero-unexplained-mismatch real shadow comparisons. The complete
+  five-stage definition and terminal verifier are implemented; a real-data
+  host runner is not.
 - Evidence, review, canonical, or public database sinks.
 - Apply mode.
 

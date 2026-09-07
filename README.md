@@ -32,17 +32,23 @@ their source terms, target contracts, and deployment manifests are approved.
 - A manifest-verified synthetic-fixture adapter.
 - A separately gated read-only shadow executor and attested PostgreSQL snapshot
   adapter.
+- A digest-pinned immutable JSON adapter with broker-owned ephemeral datasets
+  for zero-raw-artifact source contracts.
 - An executable APizzaMichigan FSQ-shaped fixture preview.
 - An APizza-owned, pure two-input legacy-source matcher with synthetic boundary
   goldens and no product-write authority.
+- A five-stage APizza FSQ shadow definition: ephemeral FSQ projection,
+  normalization, canonical Postgres snapshot, matching, and a receipt-backed
+  verifier. Its real-data host runner and policy gate remain unimplemented.
 
 The repository executes local synthetic previews. It also contains a distinct
-non-authoritative shadow runtime that may read one exact host-configured
-PostgreSQL view under a dedicated read-only credential. It does **not** acquire
-real external discovery sources or write product databases. Real profiles have
-no effect policy or plugin-lock binding. The existing application pipelines
-remain authoritative until source-by-source cutover gates and rollback
-rehearsals pass.
+non-authoritative shadow runtime that can join one exact host-registered,
+bounded FSQ OS release projection to one exact host-configured PostgreSQL view
+under a dedicated read-only credential. It does **not** download the upstream
+FSQ release, retain a raw source artifact, or write product databases. Real
+profiles have no effect policy or plugin-lock binding. The existing application
+pipelines remain authoritative until source-by-source cutover gates and
+rollback rehearsals pass.
 
 ## Known intentional limits
 
@@ -52,8 +58,8 @@ and validate each plugin's configuration schema, or load trusted profile and
 deployment manifests. `assertApplyReady` defines a fail-closed join contract for
 a future apply executor; it is not evidence that the preview executor can apply
 or that a deployment is safe to enable. The JSON files under `examples/` remain
-shape-validation examples only; the typed APizza fixture command is the sole
-executable preview path in this milestone.
+shape-validation examples only; the typed APizza fixture command and synthetic
+shadow tests are the executable paths in this milestone.
 
 Likewise, the SDK exposes only effect descriptions and secret identifiers. The
 broker contract calculates record bounds from broker-owned data, resolves
@@ -73,7 +79,13 @@ flight fails the stage. Expired inputs are rejected before plugin code runs.
 Output receipts are opaque broker-minted values bound to the committed output,
 not plugin-authored claims. Stage results have only declared output ports—quarantine is an ordinary
 declared output, never a side channel—and the preview executor rejects every
-handle absent from its run-scoped broker registry. The fixture runtime
+handle absent from its run-scoped broker registry. For zero-raw-retention
+contracts, the broker can instead hold a validated source value in memory,
+preserve only its snapshot attestation in downstream provenance, and release
+the registry-owned value after its last declared consumer or a run failure.
+Trusted in-process plugin code necessarily receives a separate value graph
+while consuming it; only an isolated worker could forcibly revoke that copy.
+The fixture runtime
 implements those controls only for approved synthetic reads and preview
 artifact writes. The separately constructed read-only shadow runtime also
 requires an exact host-owned source grant and matching snapshot attestation; it

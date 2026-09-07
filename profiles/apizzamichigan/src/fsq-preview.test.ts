@@ -1262,6 +1262,7 @@ test("schema validation and persistence use a broker-owned value snapshot", asyn
     });
     const result = await executor.run({ partition: "US", runId: "snapshot-value" });
     const reportUri = result.stages.at(-1)!.outputs.report!.uri;
+    assert.ok(reportUri);
     const persisted = JSON.parse(await readFile(new URL(reportUri), "utf8"));
     assert.equal(persisted.version, 1);
   } finally {

@@ -6,6 +6,7 @@
   "exports": "./src/index.ts",
   "dependencies": {
     "@map-pipeline/adapter-files": "*",
+    "@map-pipeline/adapter-postgres": "*",
     "@map-pipeline/artifacts-filesystem": "*",
     "@map-pipeline/core": "*",
     "@map-pipeline/executor": "*",

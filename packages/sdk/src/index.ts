@@ -2,6 +2,7 @@ import type {
   CanonicalJson,
   DatasetHandle,
   DatasetRef,
+  EphemeralDatasetHandle,
   DeliveryReceipt,
   EffectClass,
   PipelineMode,
@@ -100,6 +101,15 @@ export interface StageBroker {
     outputPort: string;
     checkpointProposal?: unknown;
   }): Promise<DatasetRef>;
+  /**
+   * Finalizes an acquisition as a broker-owned in-memory dataset. No source
+   * bytes, source artifact, or checkpoint are persisted. Snapshot attestation
+   * metadata may flow into a downstream derived artifact's provenance.
+   */
+  finalizeSourceEphemeral(input: {
+    acquisition: BrokerAcquisitionHandle;
+    outputPort: string;
+  }): Promise<EphemeralDatasetHandle>;
   /**
    * Stages a transform/review output from the executor-owned invocation's
    * complete input map, deriving immutable ancestry plus the strictest expiry,

@@ -9,6 +9,7 @@ import type {
   PostgresSnapshotResource,
 } from "./index.js";
 import {
+  computePostgresSnapshotReaderBindingDigest,
   PostgresSnapshotReadError,
   PostgresSnapshotResourceReader,
 } from "./index.js";
@@ -222,6 +223,20 @@ test("reads a complete deterministic snapshot in a read-only repeatable-read tra
   assert.deepEqual(client.queries[6]?.values, [11, transferBudget, transferBudget]);
   assert.equal(client.queries[7]?.sql, "ROLLBACK");
   assert.deepEqual(client.releases, [false]);
+});
+
+test("exports the exact validated reader binding digest used by snapshot attestations", () => {
+  assert.equal(
+    computePostgresSnapshotReaderBindingDigest(resource),
+    "sha256:169c8be90f1236aaa1060657c3a10a714134ca99974e22470244ccf970ed9070",
+  );
+  assert.throws(
+    () => computePostgresSnapshotReaderBindingDigest({
+      ...resource,
+      orderBy: ["missing_column"],
+    }),
+    /must be selected/,
+  );
 });
 
 test("rejects an unregistered logical URI without opening a connection", async () => {

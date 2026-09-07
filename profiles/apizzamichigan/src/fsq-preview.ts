@@ -19,6 +19,10 @@ import {
   normalizeApizzaCandidateTextV1 as normalizeText,
   type ApizzaCandidateRouteV1,
 } from "./candidate-v1.js";
+import {
+  APIZZA_FSQ_RELEASE_ROWS_SCHEMA,
+  validateApizzaFsqReleaseRowsV1,
+} from "./fsq-release-v1.js";
 
 const RAW_SCHEMA = { name: "apizza.fsq.synthetic-document", version: 1 } as const;
 const CANDIDATE_SCHEMA = APIZZA_SOURCE_CANDIDATE_SCHEMA;
@@ -193,7 +197,7 @@ interface FixtureDocument {
 
 export type CandidateRoute = ApizzaCandidateRouteV1;
 
-interface CandidatePayload {
+export interface ApizzaFsqCandidatePayloadV1 {
   source: "fsq_os_places";
   source_label: "Foursquare OS Places";
   source_id: string | null;
@@ -214,6 +218,8 @@ interface CandidatePayload {
   spider: null;
   route: CandidateRoute;
 }
+
+type CandidatePayload = ApizzaFsqCandidatePayloadV1;
 
 function assertRecord(value: unknown, label: string): asserts value is Record<string, unknown> {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
@@ -257,7 +263,7 @@ const validateRawDocument: CanonicalJsonValidator = (value) => {
   }
 };
 
-const validateCandidates: CanonicalJsonValidator = (value) => {
+export const validateApizzaSourceCandidatesV1: CanonicalJsonValidator = (value) => {
   if (!Array.isArray(value)) throw new TypeError("Candidate output must be an array");
   let partition: string | null = null;
   let priorKey: [string, string] | null = null;
@@ -301,7 +307,11 @@ const validateCandidates: CanonicalJsonValidator = (value) => {
       !isStringOrNull(candidate.payload.source_id) ||
       !isStringOrNull(candidate.payload.name) ||
       !isFiniteNumberOrNull(candidate.payload.lat) ||
+      (candidate.payload.lat !== null &&
+        (candidate.payload.lat < -90 || candidate.payload.lat > 90)) ||
       !isFiniteNumberOrNull(candidate.payload.lng) ||
+      (candidate.payload.lng !== null &&
+        (candidate.payload.lng < -180 || candidate.payload.lng > 180)) ||
       !isStringOrNull(candidate.payload.address) ||
       !isStringOrNull(candidate.payload.locality) ||
       !isStringOrNull(candidate.payload.region) ||
@@ -410,7 +420,9 @@ export const apizzaFsqPreviewSchemaValidators: Readonly<
   Record<string, CanonicalJsonValidator>
 > = Object.freeze({
   [`${RAW_SCHEMA.name}@${RAW_SCHEMA.version}`]: validateRawDocument,
-  [`${CANDIDATE_SCHEMA.name}@${CANDIDATE_SCHEMA.version}`]: validateCandidates,
+  [`${APIZZA_FSQ_RELEASE_ROWS_SCHEMA.name}@${APIZZA_FSQ_RELEASE_ROWS_SCHEMA.version}`]:
+    validateApizzaFsqReleaseRowsV1,
+  [`${CANDIDATE_SCHEMA.name}@${CANDIDATE_SCHEMA.version}`]: validateApizzaSourceCandidatesV1,
   [`${REPORT_SCHEMA.name}@${REPORT_SCHEMA.version}`]: validateReport,
 });
 
@@ -554,6 +566,30 @@ export function normalizeSyntheticFsqDocument(
   if (!document.synthetic || !Array.isArray(document.rows)) {
     throw new TypeError("FSQ fixture document must be explicitly synthetic");
   }
+  return normalizeFsqRowsV1(document.rows, {
+    ...context,
+    fallbackRetrievedAt: "2026-09-06T00:00:00.000Z",
+    license: document.license,
+    attribution: "Generated synthetic fixture; no Foursquare records included",
+  });
+}
+
+export function normalizeFsqRowsV1(
+  rows: readonly Record<string, unknown>[],
+  context: {
+    runId: string;
+    stageId: string;
+    partition: string;
+    pluginVersion: string;
+    evaluationTime: string;
+    fallbackRetrievedAt: string;
+    license: string;
+    attribution: string;
+  },
+): Array<RecordEnvelope<ApizzaFsqCandidatePayloadV1>> {
+  if (!Array.isArray(rows) || rows.some((row) => !row || typeof row !== "object" || Array.isArray(row))) {
+    throw new TypeError("FSQ release rows must be an array of objects");
+  }
   const evaluationTimeMs = Date.parse(context.evaluationTime);
   if (
     Number.isNaN(evaluationTimeMs) ||
@@ -561,7 +597,17 @@ export function normalizeSyntheticFsqDocument(
   ) {
     throw new TypeError("FSQ evaluationTime must be a canonical ISO timestamp");
   }
-  return document.rows.map((row) => {
+  const fallbackRetrievedAtMs = Date.parse(context.fallbackRetrievedAt);
+  if (
+    Number.isNaN(fallbackRetrievedAtMs) ||
+    new Date(fallbackRetrievedAtMs).toISOString() !== context.fallbackRetrievedAt
+  ) {
+    throw new TypeError("FSQ fallbackRetrievedAt must be a canonical ISO timestamp");
+  }
+  if (!context.license || !context.attribution) {
+    throw new TypeError("FSQ normalization requires explicit license and attribution text");
+  }
+  return rows.map((row) => {
     const payloadWithoutRoute = legacyNormalizedPayload(row, evaluationTimeMs);
     const sourceId = payloadWithoutRoute.source_id;
     const payload: CandidatePayload = {
@@ -593,9 +639,9 @@ export function normalizeSyntheticFsqDocument(
         name: "fsq_os_places",
         namespace: "foursquare",
         externalId: identity,
-        retrievedAt: stringOrNull(row.retrieved_at) ?? "2026-09-06T00:00:00.000Z",
-        license: document.license,
-        attribution: "Generated synthetic fixture; no Foursquare records included",
+        retrievedAt: stringOrNull(row.retrieved_at) ?? context.fallbackRetrievedAt,
+        license: context.license,
+        attribution: context.attribution,
       },
       schema: CANDIDATE_SCHEMA,
       partition: context.partition,

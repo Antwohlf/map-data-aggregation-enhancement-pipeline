@@ -272,6 +272,8 @@ export interface PreviewSourceDatasetProvenance {
   kind: "preview_source";
   runtimeClass: "fixture_preview" | "read_only_shadow";
   runtimePolicyDigest: string;
+  /** Broker-derived logical record count for the acquired source snapshot. */
+  recordCount: number;
   producingStageId: string;
   profileId: string;
   bindingPolicyId: string;
@@ -289,6 +291,13 @@ export interface InternalDatasetProvenance {
   producingStageId: string;
   outputPort: string;
   parentHandles: string[];
+  /**
+   * Transitive source attestations retained without retaining source bytes.
+   * Preview/shadow brokers populate this so a durable normalized artifact can
+   * still be tied to the exact source snapshot after an ephemeral parent is
+   * released.
+   */
+  sourceProvenance?: Array<SourceDatasetProvenance | PreviewSourceDatasetProvenance>;
 }
 
 export interface BrokerAuditDatasetProvenance {

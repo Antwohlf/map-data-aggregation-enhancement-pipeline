@@ -2,6 +2,8 @@ import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { readFile, stat } from "node:fs/promises";
 
+import { pathViolations, textViolations } from "./public-audit-policy.mjs";
+
 const MAX_BUFFER = 64 * 1024 * 1024;
 
 function gitText(args) {
@@ -25,49 +27,14 @@ const untrackedFiles = nulList(
 );
 const workingFiles = [...new Set([...indexFiles, ...untrackedFiles])].sort();
 const errors = [];
-const forbiddenPath = /(^|\/)(\.pipeline-state|artifacts|checkpoints|runtime|state|raw|input|output|backups|reports)(\/|$)/;
-const forbiddenExtension = /\.(db|db-shm|db-wal|sqlite|sqlite3|sqlite-shm|sqlite-wal|sqlite3-shm|sqlite3-wal|ndjson|parquet|log)$/i;
-const localHome = new RegExp("/" + "Users/|/" + "home/");
-const hostName = /\b[a-z0-9.-]+\.local\b/i;
-const credentialNames = [
-  ["service", "role", "key"].join("_"),
-  ["database", "url"].join("_"),
-  ["direct", "url"].join("_"),
-  ["api", "key"].join("_"),
-  ["pg", "password"].join(""),
-  ["db", "password"].join("_"),
-  ["postgres", "password"].join("_"),
-  ["supabase", "db", "password"].join("_"),
-].join("|");
-const credentialAssignment = new RegExp(
-  `(?:${credentialNames})\\s*[=:]\\s*[^\\s<{]`,
-  "i",
-);
-const postgresCredentialUri = new RegExp(
-  ["postgres(?:ql)?", "://", "[^\\s:/@]+", ":", "[^\\s/@]+", "@"].join(""),
-  "i",
-);
-
 function scanPath(label, path) {
-  if (forbiddenPath.test(path) || forbiddenExtension.test(path)) {
-    errors.push(`${label}: forbidden runtime/raw path or extension`);
-  }
-  if (/\.jsonl$/i.test(path) && !path.startsWith("fixtures/synthetic/")) {
-    errors.push(`${label}: JSONL is allowed only in the synthetic fixture tree`);
-  }
+  errors.push(...pathViolations(path).map((violation) => `${label}: ${violation}`));
 }
 
 function scanBytes(label, bytes) {
   if (bytes.includes(0)) return;
   const value = bytes.toString("utf8");
-  if (localHome.test(value)) errors.push(`${label}: contains an absolute home path`);
-  if (hostName.test(value)) errors.push(`${label}: contains a local hostname`);
-  if (credentialAssignment.test(value)) {
-    errors.push(`${label}: resembles a credential assignment`);
-  }
-  if (postgresCredentialUri.test(value)) {
-    errors.push(`${label}: contains a password-bearing PostgreSQL URI`);
-  }
+  errors.push(...textViolations(value).map((violation) => `${label}: ${violation}`));
 }
 
 for (const path of workingFiles) {
@@ -99,9 +66,9 @@ for (const commit of commits) {
     "--format=%an%x00%ae%x00%cn%x00%ce",
     commit,
   ]);
-  if (localHome.test(metadata) || hostName.test(metadata)) {
-    errors.push(`${commit}: commit metadata contains a local path or hostname`);
-  }
+  errors.push(...textViolations(metadata).map(
+    (violation) => `${commit}: commit metadata ${violation}`,
+  ));
   const paths = nulList(
     gitText(["ls-tree", "-r", "--name-only", "-z", commit]),
   );

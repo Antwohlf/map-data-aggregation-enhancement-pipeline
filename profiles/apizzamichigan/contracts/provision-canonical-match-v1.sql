@@ -146,7 +146,9 @@ SELECT
   lat::double precision AS lat,
   lng::double precision AS lng
 FROM public.pizza_places
-WHERE lat IS NOT NULL AND lng IS NOT NULL;
+WHERE lat IS NOT NULL AND lng IS NOT NULL
+  AND lat::double precision BETWEEN -90 AND 90
+  AND lng::double precision BETWEEN -180 AND 180;
 
 COMMENT ON VIEW pipeline_input.apizza_canonical_match_v1 IS :'contract_comment';
 

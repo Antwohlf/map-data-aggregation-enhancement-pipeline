@@ -91,7 +91,7 @@
     }
   ],
   "selectionSemantics": {
-    "coordinateFilter": "lat IS NOT NULL AND lng IS NOT NULL",
+    "coordinateFilter": "lat IS NOT NULL AND lng IS NOT NULL AND lat::double precision BETWEEN -90 AND 90 AND lng::double precision BETWEEN -180 AND 180",
     "lifecycleFilter": "none",
     "reason": "Version 1 preserves the legacy matcher candidate set for shadow parity. A lifecycle correction requires a new contract version."
   },

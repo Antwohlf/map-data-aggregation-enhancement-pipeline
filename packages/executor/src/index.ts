@@ -11,10 +11,13 @@ import {
   type CanonicalJsonValidator,
   type CommittedJsonArtifact,
   type DatasetHandle,
+  type DatasetProvenance,
   type DatasetRef,
+  type DatasetRestrictions,
   type DatasetRegistryVerifier,
   type DeliveryReceipt,
   type EffectAuthorization,
+  type EphemeralDatasetHandle,
   type HostPolicyManifest,
   type JsonArtifactStore,
   type PipelineDefinition,
@@ -41,11 +44,25 @@ export class PreviewExecutionError extends Error {
   override readonly name = "PreviewExecutionError";
 }
 
-interface RegisteredDataset {
+interface RegisteredArtifactDataset {
+  kind: "artifact";
   dataset: DatasetRef;
   artifact: CommittedJsonArtifact;
   fingerprint: string;
 }
+
+interface RegisteredEphemeralDataset {
+  kind: "ephemeral";
+  dataset: EphemeralDatasetHandle;
+  value: CanonicalJson;
+  expiresAt: string;
+  restrictions: DatasetRestrictions;
+  provenance: DatasetProvenance;
+  remainingConsumers: number;
+  fingerprint: string;
+}
+
+type RegisteredDataset = RegisteredArtifactDataset | RegisteredEphemeralDataset;
 
 class PreviewDatasetRegistry implements DatasetRegistryVerifier {
   readonly #datasets = new Map<string, RegisteredDataset>();
@@ -55,24 +72,106 @@ class PreviewDatasetRegistry implements DatasetRegistryVerifier {
       throw new PreviewExecutionError(`Duplicate dataset handle ${dataset.brokerHandle}`);
     }
     this.#datasets.set(dataset.brokerHandle, {
+      kind: "artifact",
       dataset,
       artifact,
       fingerprint: canonicalize(JSON.parse(JSON.stringify(dataset)) as CanonicalJson),
     });
   }
 
+  registerEphemeral(
+    dataset: EphemeralDatasetHandle,
+    value: CanonicalJson,
+    metadata: {
+      expiresAt: string;
+      restrictions: DatasetRestrictions;
+      provenance: DatasetProvenance;
+      remainingConsumers: number;
+    },
+  ): void {
+    if (this.#datasets.has(dataset.brokerHandle)) {
+      throw new PreviewExecutionError(`Duplicate dataset handle ${dataset.brokerHandle}`);
+    }
+    if (!Number.isSafeInteger(metadata.remainingConsumers) || metadata.remainingConsumers <= 0) {
+      throw new PreviewExecutionError("Ephemeral dataset requires a positive consumer count");
+    }
+    this.#datasets.set(dataset.brokerHandle, {
+      kind: "ephemeral",
+      dataset,
+      value,
+      expiresAt: metadata.expiresAt,
+      restrictions: metadata.restrictions,
+      provenance: metadata.provenance,
+      remainingConsumers: metadata.remainingConsumers,
+      fingerprint: canonicalize(JSON.parse(JSON.stringify(dataset)) as CanonicalJson),
+    });
+  }
+
   verifyDataset(dataset: DatasetHandle): boolean {
     const registered = this.#datasets.get(dataset.brokerHandle);
-    if (!registered || dataset.kind !== "artifact") return false;
+    if (!registered || dataset.kind !== registered.kind) return false;
     return registered.fingerprint ===
       canonicalize(JSON.parse(JSON.stringify(dataset)) as CanonicalJson);
   }
 
   artifactFor(dataset: DatasetHandle): CommittedJsonArtifact {
-    if (!this.verifyDataset(dataset)) {
+    const registered = this.#datasets.get(dataset.brokerHandle);
+    if (!this.verifyDataset(dataset) || registered?.kind !== "artifact") {
       throw new PreviewExecutionError("Dataset is not registered by this preview run");
     }
-    return this.#datasets.get(dataset.brokerHandle)!.artifact;
+    return registered.artifact;
+  }
+
+  valueFor(dataset: DatasetHandle): CanonicalJson | undefined {
+    const registered = this.#datasets.get(dataset.brokerHandle);
+    if (!this.verifyDataset(dataset) || registered?.kind !== "ephemeral") return undefined;
+    return structuredClone(registered.value);
+  }
+
+  lineageFor(dataset: DatasetHandle): {
+    expiresAt: string;
+    restrictions: DatasetRestrictions;
+    provenance: DatasetProvenance;
+  } {
+    const registered = this.#datasets.get(dataset.brokerHandle);
+    if (!this.verifyDataset(dataset) || !registered) {
+      throw new PreviewExecutionError("Dataset is not registered by this preview run");
+    }
+    if (registered.kind === "artifact") {
+      if (!registered.dataset.expiresAt) {
+        throw new PreviewExecutionError("Preview data parents must expire");
+      }
+      return {
+        expiresAt: registered.dataset.expiresAt,
+        restrictions: registered.dataset.restrictions,
+        provenance: registered.dataset.provenance,
+      };
+    }
+    return {
+      expiresAt: registered.expiresAt,
+      restrictions: registered.restrictions,
+      provenance: registered.provenance,
+    };
+  }
+
+  releaseConsumed(inputs: readonly DatasetHandle[]): void {
+    for (const input of inputs) {
+      const registered = this.#datasets.get(input.brokerHandle);
+      if (!registered || registered.kind !== "ephemeral") continue;
+      registered.remainingConsumers -= 1;
+      if (registered.remainingConsumers < 0) {
+        throw new PreviewExecutionError("Ephemeral dataset consumer accounting underflowed");
+      }
+      if (registered.remainingConsumers === 0) {
+        this.#datasets.delete(input.brokerHandle);
+      }
+    }
+  }
+
+  clearEphemeral(): void {
+    for (const [handle, registered] of this.#datasets) {
+      if (registered.kind === "ephemeral") this.#datasets.delete(handle);
+    }
   }
 }
 
@@ -411,6 +510,13 @@ class PreviewStageBroker implements StageBroker {
       ) {
         throw new PreviewExecutionError("Dataset is not an input of this stage");
       }
+      if (dataset.kind === "ephemeral") {
+        const value = this.#registry.valueFor(dataset);
+        if (value === undefined) {
+          throw new PreviewExecutionError("Ephemeral dataset is not registered by this preview run");
+        }
+        return value;
+      }
       const artifact = this.#registry.artifactFor(dataset);
       return this.#artifactStore.readJson(artifact, {
         maxBytes: this.#stage.resources.maxArtifactBytes,
@@ -485,6 +591,7 @@ class PreviewStageBroker implements StageBroker {
           kind: "preview_source",
           runtimeClass: this.#runtimeClass,
           runtimePolicyDigest: this.#runtimePolicyDigest,
+          recordCount: acquisition.recordCount,
           producingStageId: this.#stage.id,
           profileId: this.#definition.profile,
           bindingPolicyId: binding.policyId,
@@ -500,6 +607,92 @@ class PreviewStageBroker implements StageBroker {
       try {
         const dataset = await this.#commitStaged(staged, input.outputPort, metadata);
         acquisition.status = "finalized";
+        return dataset;
+      } catch (error) {
+        acquisition.status = "failed";
+        throw error;
+      }
+    });
+  }
+
+  async finalizeSourceEphemeral(input: {
+    acquisition: BrokerAcquisitionHandle;
+    outputPort: string;
+  }): Promise<EphemeralDatasetHandle> {
+    return this.#track(async () => {
+      const acquisition = this.#acquisitions.get(input.acquisition.brokerHandle);
+      if (!acquisition || acquisition.status !== "open") {
+        throw new PreviewExecutionError("Source acquisition is unknown or already finalized");
+      }
+      const declaration = this.#manifest.outputs[input.outputPort];
+      if (!declaration || declaration.artifactPolicy !== "forbidden") {
+        throw new PreviewExecutionError(
+          "Ephemeral source output must declare forbidden artifact persistence",
+        );
+      }
+      const binding = this.#sourceBinding(input.outputPort, acquisition);
+      if (
+        acquisition.schema.name !== declaration.schema.name ||
+        acquisition.schema.version !== declaration.schema.version
+      ) {
+        throw new PreviewExecutionError(
+          `Source output ${input.outputPort} does not match the reader schema`,
+        );
+      }
+      if (!sameStrings(binding.childIds, acquisition.observedChildIds)) {
+        throw new PreviewExecutionError("Observed child datasets do not match the source binding");
+      }
+      const outputReference = `${this.#stage.id}.${input.outputPort}`;
+      const remainingConsumers = this.#definition.stages.reduce(
+        (count, stage) => count + Object.values(stage.inputs ?? {})
+          .filter((reference) => reference === outputReference).length,
+        0,
+      );
+      if (remainingConsumers === 0) {
+        throw new PreviewExecutionError(
+          `Ephemeral source output ${outputReference} has no declared consumer`,
+        );
+      }
+      this.#claimOutputPort(input.outputPort);
+      this.#validateOutputJson(input.outputPort, acquisition.value);
+      acquisition.status = "finalizing";
+      try {
+        const dataset = freezeRecursively({
+          kind: "ephemeral" as const,
+          artifactPolicy: "forbidden" as const,
+          brokerHandle: `ephemeral:${randomUUID()}`,
+          schema: { ...declaration.schema },
+          recordCount: acquisition.recordCount,
+        }) as unknown as EphemeralDatasetHandle;
+        const now = new Date().toISOString();
+        this.#registry.registerEphemeral(dataset, acquisition.value, {
+          expiresAt: new Date(Date.parse(now) + 86_400_000).toISOString(),
+          restrictions: {
+            sourcePolicies: [],
+            redistribution: "forbidden",
+            attributionRefs: [],
+          },
+          provenance: {
+            kind: "preview_source",
+            runtimeClass: this.#runtimeClass,
+            runtimePolicyDigest: this.#runtimePolicyDigest,
+            recordCount: acquisition.recordCount,
+            producingStageId: this.#stage.id,
+            profileId: this.#definition.profile,
+            bindingPolicyId: binding.policyId,
+            sourceAdapter: this.#manifest.sourceAdapter!,
+            effectClass: binding.effectClass,
+            resourceUri: binding.resourceUri,
+            operations: binding.operations,
+            outputPort: input.outputPort,
+            childIds: acquisition.observedChildIds,
+            snapshot: acquisition.snapshot,
+          },
+          remainingConsumers,
+        });
+        acquisition.status = "finalized";
+        this.#finalizedOutputs.set(input.outputPort, dataset.brokerHandle);
+        this.#acquisitions.delete(input.acquisition.brokerHandle);
         return dataset;
       } catch (error) {
         acquisition.status = "failed";
@@ -547,30 +740,41 @@ class PreviewStageBroker implements StageBroker {
       throw new PreviewExecutionError("Source output cannot use derived finalization");
     }
     const parents = Object.values(this.#inputs).map((dataset) => {
-      if (dataset.kind !== "artifact" || !this.#registry.verifyDataset(dataset)) {
+      if (!this.#registry.verifyDataset(dataset)) {
         throw new PreviewExecutionError("Derived output has an unregistered parent");
       }
       return dataset;
     });
     const sourcePolicies = new Map<string, DatasetRef["restrictions"]["sourcePolicies"][number]>();
     const attributionRefs = new Set<string>();
+    const sourceProvenance = new Map<string, NonNullable<
+      Extract<DatasetProvenance, { kind: "internal" }>["sourceProvenance"]
+    >[number]>();
     let redistribution: DatasetRef["restrictions"]["redistribution"] = "approved";
     let earliestExpiry = Number.POSITIVE_INFINITY;
     for (const parent of parents) {
-      for (const policy of parent.restrictions.sourcePolicies) {
+      const lineage = this.#registry.lineageFor(parent);
+      for (const policy of lineage.restrictions.sourcePolicies) {
         sourcePolicies.set(
           `${policy.profileId}:${policy.profilePolicyDigest}:${policy.sourcePolicyId}`,
           policy,
         );
       }
-      for (const attribution of parent.restrictions.attributionRefs) {
+      for (const attribution of lineage.restrictions.attributionRefs) {
         attributionRefs.add(attribution);
       }
-      if (parent.restrictions.redistribution === "forbidden") redistribution = "forbidden";
-      if (!parent.expiresAt) {
-        throw new PreviewExecutionError("Preview data parents must expire");
+      if (lineage.restrictions.redistribution === "forbidden") redistribution = "forbidden";
+      earliestExpiry = Math.min(earliestExpiry, Date.parse(lineage.expiresAt));
+      if (
+        lineage.provenance.kind === "source" ||
+        lineage.provenance.kind === "preview_source"
+      ) {
+        sourceProvenance.set(digestObject(lineage.provenance), lineage.provenance);
+      } else if (lineage.provenance.kind === "internal") {
+        for (const source of lineage.provenance.sourceProvenance ?? []) {
+          sourceProvenance.set(digestObject(source), source);
+        }
       }
-      earliestExpiry = Math.min(earliestExpiry, Date.parse(parent.expiresAt));
     }
     const now = new Date().toISOString();
     return this.#commitStaged(staged, input.outputPort, {
@@ -590,6 +794,9 @@ class PreviewStageBroker implements StageBroker {
         producingStageId: this.#stage.id,
         outputPort: input.outputPort,
         parentHandles: parents.map((parent) => parent.brokerHandle),
+        sourceProvenance: [...sourceProvenance.entries()]
+          .sort(([left], [right]) => left.localeCompare(right))
+          .map(([, source]) => source),
       },
     });
   }
@@ -722,34 +929,42 @@ class PreviewStageBroker implements StageBroker {
     return policy;
   }
 
-  async #stageJson(
-    outputPort: string,
-    value: CanonicalJson,
-    sourceAcquisitionHandle: string | null,
-  ): Promise<BrokerStagedArtifactHandle> {
+  #claimOutputPort(outputPort: string): void {
     if (!this.#manifest.outputs[outputPort]) {
       throw new PreviewExecutionError(`Undeclared output ${outputPort}`);
     }
-    if (this.#stagingInProgress) {
-      throw new PreviewExecutionError("Concurrent artifact staging is not allowed");
-    }
     if (this.#claimedOutputPorts.has(outputPort)) {
-      throw new PreviewExecutionError(`Output ${outputPort} has already been staged`);
+      throw new PreviewExecutionError(`Output ${outputPort} has already been staged or finalized`);
     }
     this.#claimedOutputPorts.add(outputPort);
-    const snapshot = freezeRecursively(structuredClone(value));
+  }
+
+  #validateOutputJson(outputPort: string, value: CanonicalJson): void {
     const schema = this.#manifest.outputs[outputPort]!.schema;
     const validate = this.#schemaValidators[schemaKey(schema)];
     if (!validate) {
       throw new PreviewExecutionError(`No runtime validator registered for ${schemaKey(schema)}`);
     }
     try {
-      validate(snapshot);
+      validate(value);
     } catch (error) {
       throw new PreviewExecutionError(
         `Output ${outputPort} failed ${schemaKey(schema)} validation: ${errorMessage(error)}`,
       );
     }
+  }
+
+  async #stageJson(
+    outputPort: string,
+    value: CanonicalJson,
+    sourceAcquisitionHandle: string | null,
+  ): Promise<BrokerStagedArtifactHandle> {
+    if (this.#stagingInProgress) {
+      throw new PreviewExecutionError("Concurrent artifact staging is not allowed");
+    }
+    this.#claimOutputPort(outputPort);
+    const snapshot = freezeRecursively(structuredClone(value));
+    this.#validateOutputJson(outputPort, snapshot);
     this.#stagingInProgress = true;
     return this.#track(async () => {
       try {
@@ -858,10 +1073,10 @@ export interface PreviewStageReport {
   metrics: Record<string, number>;
   outputs: Record<string, {
     brokerHandle: string;
-    contentDigest: string;
-    manifestDigest: string;
     recordCount: number;
-    uri: string;
+    contentDigest?: string;
+    manifestDigest?: string;
+    uri?: string;
   }>;
   deliveryReceipts: DeliveryReceipt[];
 }
@@ -1005,8 +1220,9 @@ class OrderedArtifactExecutor {
         ...grant,
         operations: [...grant.operations],
       })),
-      profile: this.#options.definition.profile,
-      pipeline: this.#options.definition.metadata,
+      definition: this.#options.definition,
+      catalog: this.#options.catalog,
+      hostPolicy: this.#options.hostPolicy,
     });
     this.#assertReady();
   }
@@ -1128,18 +1344,20 @@ class OrderedArtifactExecutor {
           await broker.close({ rejectUnawaited: true });
           this.#validateResult(stage, manifest, result, registry, broker);
           outputsByStage.set(stage.id, Object.freeze({ ...result.outputs }));
-          const outputSummary = Object.fromEntries(
+          const outputSummary: PreviewStageReport["outputs"] = Object.fromEntries(
             Object.entries(result.outputs).map(([port, dataset]) => {
-              if (dataset.kind !== "artifact") {
-                throw new PreviewExecutionError("Preview outputs must be persisted artifacts");
-              }
-              return [port, {
-                brokerHandle: dataset.brokerHandle,
-                contentDigest: dataset.contentDigest,
-                manifestDigest: dataset.manifestDigest,
-                recordCount: dataset.recordCount,
-                uri: dataset.uri,
-              }];
+              return dataset.kind === "artifact"
+                ? [port, {
+                  brokerHandle: dataset.brokerHandle,
+                  contentDigest: dataset.contentDigest,
+                  manifestDigest: dataset.manifestDigest,
+                  recordCount: dataset.recordCount,
+                  uri: dataset.uri,
+                }]
+                : [port, {
+                  brokerHandle: dataset.brokerHandle,
+                  recordCount: dataset.recordCount,
+                }];
             }),
           );
           this.#options.stateStore.completeStage({
@@ -1148,7 +1366,10 @@ class OrderedArtifactExecutor {
             attempt,
             finishedAt: now().toISOString(),
             outputs: Object.fromEntries(
-              Object.entries(outputSummary).map(([port, value]) => [port, value.manifestDigest]),
+              Object.entries(outputSummary).map(([port, value]) => [
+                port,
+                value.manifestDigest ?? "ephemeral",
+              ]),
             ),
           });
           stageReports.push({
@@ -1179,6 +1400,8 @@ class OrderedArtifactExecutor {
             error: errorMessage(stageError),
           });
           throw stageError;
+        } finally {
+          registry.releaseConsumed(Object.values(invocationInputs));
         }
       }
 
@@ -1211,6 +1434,7 @@ class OrderedArtifactExecutor {
       }
       throw error;
     } finally {
+      registry.clearEphemeral();
       this.#running = false;
     }
   }
@@ -1397,14 +1621,16 @@ class OrderedArtifactExecutor {
       if (
         output &&
         (!registry.verifyDataset(output) ||
-          output.kind !== "artifact" ||
-          !("producingStageId" in output.provenance) ||
-          output.provenance.producingStageId !== stage.id ||
-          !("outputPort" in output.provenance) ||
-          output.provenance.outputPort !== port ||
           output.schema.name !== declaration.schema.name ||
           output.schema.version !== declaration.schema.version ||
-          output.artifactPolicy !== declaration.artifactPolicy)
+          output.artifactPolicy !== declaration.artifactPolicy ||
+          (output.kind === "artifact" && (
+            !("producingStageId" in output.provenance) ||
+            output.provenance.producingStageId !== stage.id ||
+            !("outputPort" in output.provenance) ||
+            output.provenance.outputPort !== port
+          )) ||
+          (output.kind === "ephemeral" && declaration.artifactPolicy !== "forbidden"))
       ) {
         throw new PreviewExecutionError(`Stage ${stage.id} returned invalid output ${port}`);
       }
