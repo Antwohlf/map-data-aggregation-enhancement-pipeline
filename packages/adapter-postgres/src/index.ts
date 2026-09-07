@@ -552,6 +552,18 @@ function validateResource(resource: PostgresSnapshotResource): ValidatedResource
   });
 }
 
+/**
+ * Computes the exact host-side reader binding attested by snapshot reads.
+ * This validates the complete resource contract, including defaulted paging
+ * limits, so deployment manifests do not need to duplicate private adapter
+ * digest logic.
+ */
+export function computePostgresSnapshotReaderBindingDigest(
+  resource: PostgresSnapshotResource,
+): string {
+  return validateResource(resource).bindingDigest;
+}
+
 export class PostgresSnapshotResourceReader implements ResourceReader {
   readonly #provider: PostgresClientProvider;
   readonly #ownsProvider: boolean;

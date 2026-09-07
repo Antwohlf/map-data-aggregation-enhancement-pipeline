@@ -1,0 +1,59 @@
+{
+  "contractSchemaVersion": 1,
+  "profile": "apizzamichigan",
+  "source": "fsq_os_places",
+  "name": "apizza-fsq-release-rows",
+  "version": 1,
+  "resourceUri": "file-snapshot://pipeline-input/apizza-fsq-os-places-release-v1",
+  "operation": "snapshot",
+  "partition": "US",
+  "channel": "fsq-os-places-release-flatfile",
+  "upstreamReferences": {
+    "schema": "https://docs.foursquare.com/data-products/docs/places-os-data-schema",
+    "notice": "https://opensource.foursquare.com/places-notice-txt/"
+  },
+  "format": "json-array",
+  "rowKeys": [
+    "fsq_place_id",
+    "name",
+    "latitude",
+    "longitude",
+    "address",
+    "locality",
+    "region",
+    "postcode",
+    "country",
+    "tel",
+    "website",
+    "fsq_category_ids",
+    "fsq_category_labels",
+    "date_closed",
+    "unresolved_flags"
+  ],
+  "projection": {
+    "rejectUnknownKeys": true,
+    "coordinates": {
+      "latitude": [-90, 90],
+      "longitude": [-180, 180]
+    },
+    "closedRowsIncluded": true,
+    "removalPrivacyFlagsRejected": [
+      "delete",
+      "doesnt-exist",
+      "inappropriate",
+      "privatevenue"
+    ],
+    "retrievalTimestamp": "definition-pinned-fallback-outside-row"
+  },
+  "retention": {
+    "rawArtifactPolicy": "forbidden",
+    "rawMaxDays": 0,
+    "brokerLifetime": "until-last-declared-consumer-or-run-abort",
+    "derivedMaxDays": 30
+  },
+  "authority": "read_only_shadow_input",
+  "containsPii": true,
+  "privacyReviewStatus": "pending-conservative-classification",
+  "redistribution": "forbidden",
+  "policyStatus": "pending-disabled-no-trusted-attestation"
+}

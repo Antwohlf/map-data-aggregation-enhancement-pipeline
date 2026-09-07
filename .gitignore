@@ -32,3 +32,9 @@ reports/
 *.ndjson
 *.parquet
 *.log
+
+# Concrete host composition and scheduler files must never enter the public repo.
+*.private-config.json
+*.host-config.json
+*.deployment-config.json
+*.plist

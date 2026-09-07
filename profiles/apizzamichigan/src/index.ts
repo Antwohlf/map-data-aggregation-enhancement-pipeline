@@ -2,6 +2,8 @@ import { defineInertProfile } from "@map-pipeline/sdk";
 
 export * from "./candidate-v1.js";
 export * from "./fsq-preview.js";
+export * from "./fsq-release-v1.js";
+export * from "./fsq-shadow-v1.js";
 export * from "./matching-v1.js";
 
 export const apizzaMichiganProfile = defineInertProfile({

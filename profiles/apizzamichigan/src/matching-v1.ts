@@ -164,11 +164,16 @@ interface InternalEvaluatedPlace extends ApizzaCanonicalPlaceV1 {
 }
 
 interface PrefetchBox {
+  latitudeCell: number;
+  longitudeCell: number;
   minLat: number;
   maxLat: number;
   minLng: number;
   maxLng: number;
 }
+
+export const APIZZA_MATCHING_V1_MAX_CANDIDATES = 5_000;
+export const APIZZA_MATCHING_V1_MAX_CANONICAL_ROWS = 500_000;
 
 const MATCHABLE_ROUTES = new Set<ApizzaCandidateRoute>([
   "ready_for_match",
@@ -228,6 +233,11 @@ function assertCandidateInputs(
   candidates: Array<RecordEnvelope<ApizzaSourceCandidatePayload>>,
   partition: string,
 ): void {
+  if (candidates.length > APIZZA_MATCHING_V1_MAX_CANDIDATES) {
+    throw new TypeError(
+      `APizza matching v1 accepts at most ${APIZZA_MATCHING_V1_MAX_CANDIDATES} candidates`,
+    );
+  }
   let priorKey: [string, string] | null = null;
   let priorCanonical: string | null = null;
   for (const [index, candidate] of candidates.entries()) {
@@ -288,6 +298,11 @@ function assertCanonicalSnapshot(value: unknown): asserts value is ApizzaCanonic
   if (!exactKeys(value, ["version", "rows"]) || value.version !== 1 || !Array.isArray(value.rows)) {
     throw new TypeError("APizza canonical snapshot must contain exact v1 rows");
   }
+  if (value.rows.length > APIZZA_MATCHING_V1_MAX_CANONICAL_ROWS) {
+    throw new TypeError(
+      `APizza matching v1 accepts at most ${APIZZA_MATCHING_V1_MAX_CANONICAL_ROWS} canonical rows`,
+    );
+  }
   let priorCanonicalId: string | null = null;
   for (const [index, rawPlace] of value.rows.entries()) {
     assertObject(rawPlace, `APizza canonical snapshot row ${index}`);
@@ -307,8 +322,12 @@ function assertCanonicalSnapshot(value: unknown): asserts value is ApizzaCanonic
       !isStringOrNull(rawPlace.phone) ||
       typeof rawPlace.lat !== "number" ||
       !Number.isFinite(rawPlace.lat) ||
+      rawPlace.lat < -90 ||
+      rawPlace.lat > 90 ||
       typeof rawPlace.lng !== "number" ||
-      !Number.isFinite(rawPlace.lng)
+      !Number.isFinite(rawPlace.lng) ||
+      rawPlace.lng < -180 ||
+      rawPlace.lng > 180
     ) throw new TypeError(`APizza canonical snapshot row ${index} does not match v1`);
     if (
       priorCanonicalId !== null &&
@@ -434,7 +453,9 @@ function buildPrefetchBoxes(
     if (lat === null || lng === null) {
       throw new TypeError("Matchable APizza candidates must have finite coordinates");
     }
-    const key = `${Math.floor(lat / config.prefetchTileDegrees)}:${Math.floor(lng / config.prefetchTileDegrees)}`;
+    const latitudeCell = Math.floor(lat / config.prefetchTileDegrees);
+    const longitudeCell = Math.floor(lng / config.prefetchTileDegrees);
+    const key = `${latitudeCell}:${longitudeCell}`;
     const tile = tiles.get(key);
     if (tile) {
       tile.minLat = Math.min(tile.minLat, lat);
@@ -442,7 +463,14 @@ function buildPrefetchBoxes(
       tile.minLng = Math.min(tile.minLng, lng);
       tile.maxLng = Math.max(tile.maxLng, lng);
     } else {
-      tiles.set(key, { minLat: lat, maxLat: lat, minLng: lng, maxLng: lng });
+      tiles.set(key, {
+        latitudeCell,
+        longitudeCell,
+        minLat: lat,
+        maxLat: lat,
+        minLng: lng,
+        maxLng: lng,
+      });
     }
   }
   const latitudePadding = config.maxDistanceM / 111_320;
@@ -451,11 +479,40 @@ function buildPrefetchBoxes(
     const longitudePadding = config.maxDistanceM /
       (111_320 * Math.max(Math.cos(centerLatitude * Math.PI / 180), 0.01));
     return {
+      latitudeCell: tile.latitudeCell,
+      longitudeCell: tile.longitudeCell,
       minLat: tile.minLat - latitudePadding,
       maxLat: tile.maxLat + latitudePadding,
       minLng: tile.minLng - longitudePadding,
       maxLng: tile.maxLng + longitudePadding,
     };
+  });
+}
+
+function prefetchCanonicalRows(
+  rows: readonly ApizzaCanonicalPlaceV1[],
+  boxes: readonly PrefetchBox[],
+  tileDegrees: number,
+): ApizzaCanonicalPlaceV1[] {
+  const boxesByCell = new Map(
+    boxes.map((box) => [`${box.latitudeCell}:${box.longitudeCell}`, box]),
+  );
+  return rows.filter((place) => {
+    const latitudeCell = Math.floor(place.lat / tileDegrees);
+    const longitudeCell = Math.floor(place.lng / tileDegrees);
+    for (let latitudeOffset = -1; latitudeOffset <= 1; latitudeOffset += 1) {
+      for (let longitudeOffset = -1; longitudeOffset <= 1; longitudeOffset += 1) {
+        const box = boxesByCell.get(
+          `${latitudeCell + latitudeOffset}:${longitudeCell + longitudeOffset}`,
+        );
+        if (
+          box &&
+          place.lat >= box.minLat && place.lat <= box.maxLat &&
+          place.lng >= box.minLng && place.lng <= box.maxLng
+        ) return true;
+      }
+    }
+    return false;
   });
 }
 
@@ -567,9 +624,11 @@ export function matchApizzaCandidatesV1(
   assertCanonicalSnapshot(canonicalSnapshot);
   const matchable = candidates.filter((candidate) => MATCHABLE_ROUTES.has(candidate.payload.route));
   const boxes = buildPrefetchBoxes(matchable, config);
-  const prefetched = canonicalSnapshot.rows.filter((place) => boxes.some((box) =>
-    place.lat >= box.minLat && place.lat <= box.maxLat &&
-    place.lng >= box.minLng && place.lng <= box.maxLng));
+  const prefetched = prefetchCanonicalRows(
+    canonicalSnapshot.rows,
+    boxes,
+    config.prefetchTileDegrees,
+  );
   const grid = new Map<string, ApizzaCanonicalPlaceV1[]>();
   for (const place of prefetched) {
     const key = cellKey(place.lat, place.lng, config.gridCellDegrees);

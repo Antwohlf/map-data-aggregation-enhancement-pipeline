@@ -8,6 +8,8 @@ import {
   APIZZA_CANONICAL_MATCH_SNAPSHOT_SCHEMA,
   APIZZA_MATCH_DECISIONS_SCHEMA,
   APIZZA_MATCH_REPORT_SCHEMA,
+  APIZZA_MATCHING_V1_MAX_CANDIDATES,
+  APIZZA_MATCHING_V1_MAX_CANONICAL_ROWS,
   apizzaIdentifierMatch,
   apizzaMatchMethod,
   apizzaMatchingV1Manifest,
@@ -97,6 +99,38 @@ function canonical(
     lat: input.lat ?? 42,
     lng: input.lng ?? -83,
   };
+}
+
+function legacyNaivePrefetchIncludes(
+  candidates: Array<RecordEnvelope<ApizzaSourceCandidatePayload>>,
+  place: ApizzaCanonicalPlaceV1,
+): boolean {
+  const tiles = new Map<string, { minLat: number; maxLat: number; minLng: number; maxLng: number }>();
+  for (const item of candidates.filter((value) =>
+    ["ready_for_match", "closed_evidence_candidate"].includes(value.payload.route))) {
+    const lat = item.payload.lat!;
+    const lng = item.payload.lng!;
+    const key = `${Math.floor(lat)}:${Math.floor(lng)}`;
+    const tile = tiles.get(key);
+    if (tile) {
+      tile.minLat = Math.min(tile.minLat, lat);
+      tile.maxLat = Math.max(tile.maxLat, lat);
+      tile.minLng = Math.min(tile.minLng, lng);
+      tile.maxLng = Math.max(tile.maxLng, lng);
+    } else {
+      tiles.set(key, { minLat: lat, maxLat: lat, minLng: lng, maxLng: lng });
+    }
+  }
+  return [...tiles.values()].some((tile) => {
+    const latitudePadding = 100 / 111_320;
+    const centerLatitude = (tile.minLat + tile.maxLat) / 2;
+    const longitudePadding = 100 /
+      (111_320 * Math.max(Math.cos(centerLatitude * Math.PI / 180), 0.01));
+    return place.lat >= tile.minLat - latitudePadding &&
+      place.lat <= tile.maxLat + latitudePadding &&
+      place.lng >= tile.minLng - longitudePadding &&
+      place.lng <= tile.maxLng + longitudePadding;
+  });
 }
 
 test("pins every inclusive legacy method boundary", () => {
@@ -365,6 +399,51 @@ test("legacy tile-center longitude padding is simulated against the full snapsho
   assert.deepEqual(decisions.map(({ disposition }) => disposition), ["likely_new", "likely_new"]);
 });
 
+test("optimized prefetch membership equals the legacy box scan at tile edges", () => {
+  let seed = 0x5eed1234;
+  const random = () => {
+    seed = (Math.imul(seed, 1_664_525) + 1_013_904_223) >>> 0;
+    return seed / 0x1_0000_0000;
+  };
+  const inputs = [
+    candidate(1, { lat: 41.6001, lng: -90.4999 }),
+    candidate(2, { lat: 42.9999, lng: -83.0001 }),
+    candidate(3, { lat: 34.0001, lng: -118.9999, region: "CA" }),
+    ...Array.from({ length: 27 }, (_, offset) => {
+      const california = offset % 3 === 0;
+      return candidate(offset + 4, california
+        ? {
+          lat: 33 + random() * 8,
+          lng: -123 + random() * 8,
+          region: "CA",
+        }
+        : {
+          lat: 41.7 + random() * 6.5,
+          lng: -90.3 + random() * 8,
+          region: "MI",
+        });
+    }),
+  ];
+  const places = Array.from({ length: 300 }, (_, index) => canonical("single", {
+    name: `Random ${index}`,
+    lat: 31 + random() * 19,
+    lng: -125 + random() * 55,
+  }));
+  for (const [index, place] of places.entries()) {
+    const expected = legacyNaivePrefetchIncludes(inputs, place);
+    const result = matchApizzaCandidatesV1(
+      inputs,
+      { version: 1, rows: [place] },
+      { partition: PARTITION },
+    );
+    assert.equal(
+      result.report.canonical_rows_prefetched === 1,
+      expected,
+      `prefetch membership for generated row ${index}`,
+    );
+  }
+});
+
 test("UTF-8 canonical ID is the deterministic correction for complete legacy ties", () => {
   const input = candidate(1, { name: "Tie Place", lat: 42.3, lng: -83 });
   const rows = ["1", "10", "2"].map((id) => canonical(id, {
@@ -399,6 +478,14 @@ test("canonical snapshot and output validators fail closed", () => {
   assert.throws(() => canonicalValidator({
     version: 1,
     rows: [canonical("é".repeat(129))],
+  } as unknown as CanonicalJson), /does not match v1/);
+  assert.throws(() => canonicalValidator({
+    version: 1,
+    rows: [canonical("1", { lat: 91 })],
+  } as unknown as CanonicalJson), /does not match v1/);
+  assert.throws(() => canonicalValidator({
+    version: 1,
+    rows: [canonical("1", { lng: -181 })],
   } as unknown as CanonicalJson), /does not match v1/);
 
   const valid = matchApizzaCandidatesV1(
@@ -459,6 +546,23 @@ test("canonical snapshot and output validators fail closed", () => {
     canonical_rows_prefetched: 1,
     grid_cells_built: 1,
   } as unknown as CanonicalJson), /counts do not reconcile/);
+});
+
+test("matcher rejects inputs above its materialization caps before traversal", () => {
+  assert.throws(() => matchApizzaCandidatesV1(
+    new Array(APIZZA_MATCHING_V1_MAX_CANDIDATES + 1) as
+      Array<RecordEnvelope<ApizzaSourceCandidatePayload>>,
+    { version: 1, rows: [] },
+    { partition: PARTITION },
+  ), /at most 5000 candidates/);
+  assert.throws(() => matchApizzaCandidatesV1(
+    [],
+    {
+      version: 1,
+      rows: new Array(APIZZA_MATCHING_V1_MAX_CANONICAL_ROWS + 1),
+    } as { version: 1; rows: ApizzaCanonicalPlaceV1[] },
+    { partition: PARTITION },
+  ), /at most 500000 canonical rows/);
 });
 
 test("matcher contract is a pure two-input APizza transform", () => {
