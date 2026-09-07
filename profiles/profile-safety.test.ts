@@ -73,7 +73,7 @@ test("Pizza and Taco pin exact app-owned contracts without activating them", () 
     assert.equal(item.profile.observedTargetContract?.rawByteDigest, item.digest);
     assert.equal(item.profile.observedTargetContract?.activationEligible, false);
     assert.equal(item.profile.observedTargetContract?.source.repository, "Antwohlf/apizzamichigan");
-    assert.equal(item.profile.observedTargetContract?.source.revision, "67892ff5dfdbe7fcf746246c8a608dd531da0ac0");
+    assert.equal(item.profile.observedTargetContract?.source.revision, "ecfb0fd57e1a25384a7d81ad78f1e8d16b205728");
     assert.equal(item.profile.observedTargetContract?.source.path, item.path);
     assert.equal(item.profile.observedTargetContract?.source.digestKind, "sha256-raw-bytes-v1");
     assert.equal(item.profile.deploymentEnabled, false);

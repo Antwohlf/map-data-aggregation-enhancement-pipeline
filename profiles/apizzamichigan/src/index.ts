@@ -200,7 +200,7 @@ export const apizzaMichiganProfile = defineInertProfile({
     activationEligible: false,
     source: {
       repository: "Antwohlf/apizzamichigan",
-      revision: "67892ff5dfdbe7fcf746246c8a608dd531da0ac0",
+      revision: "ecfb0fd57e1a25384a7d81ad78f1e8d16b205728",
       path: "contracts/pipeline-targets/apizza-pipeline-write-contract.v1.json",
       digestKind: "sha256-raw-bytes-v1",
     },

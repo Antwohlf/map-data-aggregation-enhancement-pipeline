@@ -121,11 +121,27 @@ function validateBoundary(document: Readonly<Record<string, unknown>>, lock: App
   const status = record(document.status, "status");
   const target = record(record(status.targets, "status.targets")[lock.entity], `status target ${lock.entity}`);
   assert.equal(target.profile, lock.profile);
+  assert.equal(target.defaultLane, lock.entity === "pizza" ? "legacy" : "disabled");
   assert.equal(target.contract.name, lock.artifacts.targetContract.name);
   assert.equal(target.contract.version, lock.artifacts.targetContract.version);
   assert.equal(target.contract.file, lock.artifacts.targetContract.path);
-  assert.equal(target.lanes.shadow.producerKind, "external-pipeline");
-  assert.equal(target.lanes.shadow.producerRepository, "Antwohlf/map-data-aggregation-enhancement-pipeline");
+  const lanes = record(target.lanes, `${lock.entity} status lanes`);
+  exactKeys(lanes, ["legacy", "shadow", "apply"], `${lock.entity} status lanes`);
+  for (const [laneName, laneValue] of Object.entries(lanes)) {
+    const lane = record(laneValue, `${lock.entity}/${laneName} status lane`);
+    const registration = record(lane.registration, `${lock.entity}/${laneName} registration`);
+    exactKeys(registration, ["state"], `${lock.entity}/${laneName} registration`);
+    const shouldBeRegistered = lock.entity === "pizza" && laneName === "legacy";
+    assert.equal(
+      registration.state,
+      shouldBeRegistered ? "registered" : "unregistered",
+      `${lock.entity}/${laneName} status registration is unsafe`,
+    );
+    if (laneName !== "legacy") {
+      assert.equal(lane.producerKind, "external-pipeline");
+      assert.equal(lane.producerRepository, "Antwohlf/map-data-aggregation-enhancement-pipeline");
+    }
+  }
 }
 
 function validateStatusSchema(document: Readonly<Record<string, unknown>>): void {
