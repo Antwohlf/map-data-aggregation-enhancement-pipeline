@@ -78,12 +78,15 @@ export const buildHereCityProfile = defineInertProfile({
       redistribution: "forbidden",
     },
   ],
+  shadowSources: [],
   targetContract: {
-    ownerRepository: "builthere.city",
+    ownerRepository: "Antwohlf/builthere.city",
     contractName: "builthere-pipeline-write-contract",
     supportedVersions: [],
+    digestKind: "sha256-canonical-json-v1",
     digest: null,
   },
+  observedTargetContract: null,
   pluginLockDigest: null,
   invariants: [
     "official and community identities remain separate in version 1",

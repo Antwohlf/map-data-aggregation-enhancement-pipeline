@@ -1,0 +1,32 @@
+{
+  "lockSchemaVersion": 1,
+  "activationEligible": false,
+  "sourceRepository": "Antwohlf/apizzamichigan",
+  "sourceRevision": "67892ff5dfdbe7fcf746246c8a608dd531da0ac0",
+  "sourceVisibilityAtObservation": "private",
+  "profile": "apizzamichigan",
+  "entity": "pizza",
+  "artifacts": {
+    "boundaryConfig": {
+      "path": "config/pipeline-boundary.json",
+      "byteLength": 2718,
+      "rawByteDigest": "sha256:35c9e885780dc5c05140eb8a00ac3db8575ca11835dd8aef3d8df892468dc4cf",
+      "digestKind": "sha256-raw-bytes-v1"
+    },
+    "statusSchema": {
+      "path": "contracts/pipeline-status.v1.schema.json",
+      "byteLength": 8137,
+      "rawByteDigest": "sha256:83d078de9e91d3cae2d7722b3b3e302c0ea68dbc2ce7714a856fecff563dc601",
+      "digestKind": "sha256-raw-bytes-v1"
+    },
+    "targetContract": {
+      "path": "contracts/pipeline-targets/apizza-pipeline-write-contract.v1.json",
+      "byteLength": 3343,
+      "rawByteDigest": "sha256:41a0c211e9f8c474b6487c1b6e4181e2cf8a9db7bc2561de2513a503cdbb96b0",
+      "digestKind": "sha256-raw-bytes-v1",
+      "name": "apizza-pipeline-write-contract",
+      "version": 1
+    }
+  },
+  "redistribution": "metadata-only-source-artifacts-not-vendored"
+}

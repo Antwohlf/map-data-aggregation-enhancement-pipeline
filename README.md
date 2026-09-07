@@ -25,13 +25,17 @@ their source terms, target contracts, and deployment manifests are approved.
   per-child terms coverage.
 - Broker-owned dataset provenance and retention-expiry contracts.
 - Initial product-profile declarations that do not share business policy.
+- Metadata-only, exact-byte locks for the app-owned Pizza and Taco boundary
+  artifacts. These observations are explicitly separate from activation target
+  digests and cannot authorize writes.
 - A validation-only general CLI and sanitized example definition.
 - A preview-only ordered executor with static reservation preflight and timeout
   signaling.
 - Immutable, content-addressed filesystem artifacts and SQLite run state.
 - A manifest-verified synthetic-fixture adapter.
-- A separately gated read-only shadow executor and attested PostgreSQL snapshot
-  adapter.
+- A separately gated read-only shadow executor, with a frozen exact
+  profile/definition/catalog/host identity bundle, and an attested PostgreSQL
+  snapshot adapter.
 - A digest-pinned immutable JSON adapter with broker-owned ephemeral datasets
   for zero-raw-artifact source contracts.
 - An executable APizzaMichigan FSQ-shaped fixture preview.
@@ -120,6 +124,8 @@ The preview writes only to the ignored `.map-pipeline/` directory. See
 and intentional limitations.
 The PostgreSQL boundary is documented in
 [the snapshot-adapter guide](docs/POSTGRES_SNAPSHOT_ADAPTER.md).
+The non-authorizing cross-repository contract join is documented in
+[the application boundary-lock guide](docs/APP_BOUNDARY_LOCKS.md).
 
 ## Dependency rule
 

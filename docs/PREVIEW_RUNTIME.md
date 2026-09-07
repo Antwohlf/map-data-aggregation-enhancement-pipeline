@@ -20,9 +20,9 @@ state and artifacts while every real product profile remains fail-closed.
   source artifact.
 - A fixture runtime with broker-authorized `fixture://` reads and
   `preview://` artifact writes only.
-- A separately constructed read-only shadow runtime with exact host-owned
-  source grants, snapshot attestations, and the same `preview://`-only output
-  boundary.
+- A separately constructed read-only shadow runtime with an exact host-owned
+  profile/definition/catalog/host lock, source grants, snapshot attestations,
+  and the same `preview://`-only output boundary.
 - Immutable content-addressed JSON objects and manifests.
 - SQLite run, stage-attempt, and profile/mode-bound checkpoint state.
 - A fixture reader that accepts only manifest-listed, synthetic, PII-free,
@@ -77,8 +77,13 @@ bindings, and non-`preview://` outputs before starting a run. The read-only
 shadow executor permits network or artifact reads only when one exact
 host-owned grant matches the stage, adapter, policy binding, logical resource,
 operation, record cap, partition, and expected snapshot attestation. It rejects
-the same state and non-preview writes. Neither executor passes its run ledger or
-resolved credentials to plugins.
+the same state and non-preview writes. Before run state is created, it also
+recomputes the profile-policy, definition, plugin-catalog, and host-policy
+digests in its `ShadowExecutionLock`; a changed product, pipeline identity,
+policy binding, or adapter therefore fails construction. Every definition
+source must also resolve once against the profile-owned, activation-ineligible
+`shadowSources` inventory, and every such inventory entry must be used. Neither executor
+passes its run ledger or resolved credentials to plugins.
 
 Shadow artifacts are explicitly marked `preview_source`, carry the shadow
 runtime-policy digest and source-snapshot descriptor, and have no approved
@@ -88,6 +93,9 @@ The runtime-policy digest covers the full definition including pinned
 evaluation time, the complete catalog, host policy, deployment identity, and
 exact source-read grants. Derived artifacts preserve both FSQ and PostgreSQL
 source attestations transitively even after the raw in-memory value is erased.
+The successful shadow report exposes a frozen copy of the exact execution lock
+plus that runtime-policy digest for downstream status verification. Fixture
+preview reports carry no deployment binding.
 
 Plugins are trusted, in-process Node.js code in this milestone. They retain
 ambient process authority and can bypass the broker by importing Node APIs;

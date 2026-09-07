@@ -9,6 +9,7 @@ import type {
   InertProfileDeclaration,
   StagePluginManifest,
 } from "@map-pipeline/core";
+import { assertObservedTargetContractReference } from "@map-pipeline/core";
 
 export interface StageInputs {
   [port: string]: DatasetHandle;
@@ -201,6 +202,14 @@ export function defineInertProfile(
   ) {
     throw new TypeError("Scaffold profiles must be deployment-disabled");
   }
+  if (safeProfile.targetContract.digest !== null ||
+      safeProfile.targetContract.supportedVersions.length !== 0 ||
+      safeProfile.targetContract.digestKind !== "sha256-canonical-json-v1") {
+    throw new TypeError("Inert scaffold activation target must remain unbound");
+  }
+  if (safeProfile.observedTargetContract) {
+    assertObservedTargetContractReference(safeProfile.observedTargetContract);
+  }
   const sourceIds = new Set<string>();
   const namespaces = new Set<string>();
   for (const source of safeProfile.sources) {
@@ -244,6 +253,38 @@ export function defineInertProfile(
     ) {
       throw new TypeError("Official website raw retention must remain zero");
     }
+  }
+  const shadowPolicyIds = new Set<string>();
+  const shadowStages = new Set<string>();
+  for (const source of safeProfile.shadowSources) {
+    let resourceValid = false;
+    try {
+      const resource = new URL(source.resourceUri);
+      resourceValid = resource.toString() === source.resourceUri &&
+        !resource.username && !resource.password && !resource.search && !resource.hash;
+    } catch {
+      resourceValid = false;
+    }
+    if (
+      !source.stageId || source.stageId.trim() !== source.stageId ||
+      !source.pluginId || source.pluginId.trim() !== source.pluginId ||
+      !source.policyId || source.policyId.trim() !== source.policyId ||
+      !source.adapter || source.adapter.trim() !== source.adapter ||
+      !resourceValid ||
+      !source.operations.length ||
+      new Set(source.operations).size !== source.operations.length ||
+      source.operations.some((operation) => !operation || operation.trim() !== operation) ||
+      !source.outputPorts.length ||
+      new Set(source.outputPorts).size !== source.outputPorts.length ||
+      source.outputPorts.some((port) => !port || port.trim() !== port) ||
+      source.activationEligible !== false ||
+      shadowPolicyIds.has(source.policyId) ||
+      shadowStages.has(source.stageId)
+    ) {
+      throw new TypeError("Shadow source profile identity is invalid or duplicated");
+    }
+    shadowPolicyIds.add(source.policyId);
+    shadowStages.add(source.stageId);
   }
   return freezeRecursively(safeProfile);
 }

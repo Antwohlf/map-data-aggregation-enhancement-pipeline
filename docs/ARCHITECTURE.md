@@ -38,6 +38,14 @@ used for authorization; the broker derives it from broker-owned dataset
 metadata or the completed operation. Plugin context contains secret
 identifiers, never resolved secret values.
 
+An app-owned target may also be recorded as an observed raw-byte artifact. That
+observation pins repository, commit, path, byte length, and SHA-256 of the exact
+file bytes for drift detection. It is not the canonical target digest used by
+apply readiness and cannot be promoted into one. Observed targets remain
+activation-ineligible until the application issues a separately verified
+authorization receipt covering its global write veto, exact target identity,
+resource, principal, effects, and operations.
+
 Job identity includes profile, pipeline and version, task, plugin and version,
 entity, and mode. Checkpoint identity also includes stage, source namespace,
 target, partition, and a distinct preview/apply mode. This prevents a shared
@@ -106,8 +114,12 @@ Profile declarations remain deliberately inert. A fixture-preview executor,
 filesystem artifact store, SQLite run-state store, and synthetic fixture reader
 exercise the contracts without real data. A separate read-only shadow executor
 can dispatch only exact host-granted reads and currently has one PostgreSQL
-snapshot adapter. Shadow source artifacts carry explicit non-authoritative
+snapshot adapter. Its source bindings must resolve exactly against the
+profile-owned `shadowSources` inventory; an APizza definition cannot be relabeled
+as Taco and supplied with a newly generated self-consistent lock. Shadow source
+artifacts carry explicit non-authoritative
 runtime provenance rather than profile-policy approval stamps, so they cannot
 be replayed as apply-ready evidence. Apply execution, durable job workers,
 external discovery adapters, and production sinks remain later milestones. See
-`docs/PREVIEW_RUNTIME.md` and `docs/POSTGRES_SNAPSHOT_ADAPTER.md`.
+`docs/PREVIEW_RUNTIME.md`, `docs/POSTGRES_SNAPSHOT_ADAPTER.md`, and
+`docs/APP_BOUNDARY_LOCKS.md`.

@@ -458,8 +458,11 @@ export function assertApplyReady(
   }
   if (
     !profile.targetContract.digest ||
+    profile.targetContract.digestKind !== "sha256-canonical-json-v1" ||
+    deployment.targetContractDigestKind !== "sha256-canonical-json-v1" ||
     !SHA256_DIGEST.test(profile.targetContract.digest) ||
     profile.targetContract.digest !== deployment.targetContractDigest ||
+    profile.observedTargetContract !== null ||
     !profile.targetContract.supportedVersions.includes(
       deployment.targetContractVersion,
     )

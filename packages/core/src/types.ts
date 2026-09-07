@@ -151,6 +151,7 @@ export interface DeploymentManifest {
   profilePolicyDigest: string;
   pluginLockDigest: string;
   targetContractVersion: number;
+  targetContractDigestKind: "sha256-canonical-json-v1";
   targetContractDigest: string;
   effectAuthorizations: EffectAuthorization[];
   hostPolicyDigest: string;
@@ -367,16 +368,60 @@ export interface SourcePolicyDeclaration {
   redistribution: "forbidden" | "approved";
 }
 
+/** Exact, non-authorizing source identity accepted by a read-only shadow profile. */
+export interface ShadowSourcePolicyDeclaration {
+  stageId: string;
+  pluginId: string;
+  policyId: string;
+  adapter: string;
+  effectClass: Extract<EffectClass, "network.read" | "artifact.read">;
+  resourceUri: string;
+  operations: string[];
+  outputPorts: string[];
+  artifactClass: SourceArtifactClass;
+  activationEligible: false;
+}
+
+export interface ObservedTargetContractSourceReference {
+  /** Repository that owns the target contract artifact. */
+  repository: string;
+  /** Exact Git commit containing the reviewed contract bytes. */
+  revision: string;
+  /** Repository-relative path at the pinned revision. */
+  path: string;
+  /** Target contracts are identified by their exact file bytes, not reserialized JSON. */
+  digestKind: "sha256-raw-bytes-v1";
+}
+
+/**
+ * Non-authorizing observation of an app-owned target contract. This is kept
+ * separate from `targetContract`, whose digest participates in apply readiness.
+ */
+export interface ObservedTargetContractReference {
+  ownerRepository: string;
+  contractName: string;
+  version: number;
+  profile: string;
+  entity: string;
+  rawByteDigest: string;
+  byteLength: number;
+  activationEligible: false;
+  source: ObservedTargetContractSourceReference;
+}
+
 interface ProfileBase {
   id: string;
   policyVersion: number;
   sources: SourcePolicyDeclaration[];
+  shadowSources: ShadowSourcePolicyDeclaration[];
   targetContract: {
     ownerRepository: string;
     contractName: string;
     supportedVersions: number[];
+    digestKind: "sha256-canonical-json-v1";
     digest: string | null;
   };
+  observedTargetContract: ObservedTargetContractReference | null;
   pluginLockDigest: string | null;
   invariants: string[];
 }
