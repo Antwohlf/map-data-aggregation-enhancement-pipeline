@@ -58,7 +58,9 @@ The verifier performs no fetch and requires no GitHub token. It confirms that
 the pinned commit is an ancestor of the selected ref, that both revisions still
 contain the exact bytes, that JSON has no duplicate keys, that Pizza and Taco
 identities cannot be swapped, and that application-level write authorization
-remains disabled.
+remains disabled. It also confirms that Pizza legacy is the only registered
+status lane; every Taco lane and every external shadow/apply lane must remain
+unregistered until a later exact-binding contract is implemented.
 
 The source repository was private when these locks were recorded. No source
 artifact is vendored here, and the locks assert only metadata. If application

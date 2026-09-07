@@ -2,15 +2,15 @@
   "lockSchemaVersion": 1,
   "activationEligible": false,
   "sourceRepository": "Antwohlf/apizzamichigan",
-  "sourceRevision": "67892ff5dfdbe7fcf746246c8a608dd531da0ac0",
+  "sourceRevision": "ecfb0fd57e1a25384a7d81ad78f1e8d16b205728",
   "sourceVisibilityAtObservation": "private",
   "profile": "tacoboutmichigan",
   "entity": "taco",
   "artifacts": {
     "boundaryConfig": {
       "path": "config/pipeline-boundary.json",
-      "byteLength": 2718,
-      "rawByteDigest": "sha256:35c9e885780dc5c05140eb8a00ac3db8575ca11835dd8aef3d8df892468dc4cf",
+      "byteLength": 3214,
+      "rawByteDigest": "sha256:9deed4cbbf48c1a61ebfa6b373675949bc559f23b314ed61a89ca87e49ede3f3",
       "digestKind": "sha256-raw-bytes-v1"
     },
     "statusSchema": {
