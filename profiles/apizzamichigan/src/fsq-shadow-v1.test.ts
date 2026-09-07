@@ -23,7 +23,7 @@ import {
   type CanonicalJson,
   type ResourceReader,
 } from "@map-pipeline/core";
-import { ReadOnlyShadowExecutor } from "@map-pipeline/executor";
+import { ReadOnlyShadowExecutor, createShadowExecutionLock } from "@map-pipeline/executor";
 import { definePlugin } from "@map-pipeline/sdk";
 import { SqliteRunStateStore } from "@map-pipeline/state-sqlite";
 
@@ -35,9 +35,12 @@ import {
   apizzaFsqShadowV1Plugins,
   apizzaFsqShadowV1SchemaValidators,
   createApizzaFsqShadowV1Definition,
+  createApizzaFsqShadowV1ExecutionLock,
   createApizzaFsqShadowV1ReadGrants,
 } from "./fsq-shadow-v1.js";
 import { validateApizzaFsqReleaseRowsV1 } from "./fsq-release-v1.js";
+import { apizzaMichiganProfile } from "./index.js";
+import { tacoBoutMichiganProfile } from "../../tacoboutmichigan/src/index.js";
 import {
   apizzaMatchingV1Manifest,
   matchApizzaCandidatesV1,
@@ -53,6 +56,20 @@ const VIEW_DEFINITION = [
   "phone::text AS phone, lat::double precision AS lat, lng::double precision AS lng",
   "FROM public.pizza_places",
 ].join(" ");
+
+function shadowExecutionBinding(definition: Parameters<
+  typeof createApizzaFsqShadowV1ExecutionLock
+>[0]["definition"], deploymentIdentity: string) {
+  return {
+    deploymentIdentity,
+    profile: apizzaMichiganProfile,
+    executionLock: createApizzaFsqShadowV1ExecutionLock({
+      definition,
+      profile: apizzaMichiganProfile,
+      deploymentIdentity,
+    }),
+  };
+}
 
 function fsqRows(rawOnlySentinel = "raw-only-sentinel"): CanonicalJson {
   return [
@@ -92,6 +109,61 @@ function fsqRows(rawOnlySentinel = "raw-only-sentinel"): CanonicalJson {
     },
   ];
 }
+
+test("APizza shadow lock rejects profile, pipeline, policy, and adapter identity drift", () => {
+  const original = createApizzaFsqShadowV1Definition({
+    evaluationTime: "2026-09-06T00:00:00.000Z",
+    fallbackRetrievedAt: "2026-09-06T00:00:00.000Z",
+    sourceLicense: "synthetic-test-only",
+    sourceAttribution: "Synthetic test data; no Foursquare records included",
+    sourcePolicyAssertionDigest: TEST_POLICY_ASSERTION_DIGEST,
+    sourceTermsRef: "https://example.test/synthetic-source-terms",
+    fsqChildIds: ["release:identity-test"],
+  });
+  const mutations: Array<(definition: typeof original) => void> = [
+    (definition) => { definition.profile = "tacoboutmichigan"; },
+    (definition) => { definition.metadata.name = "taco-shadow"; },
+    (definition) => { definition.metadata.version = 2; },
+    (definition) => { definition.stages[0]!.sourceBindings![0]!.policyId = "taco-fsq-v1"; },
+    (definition) => { definition.stages[0]!.uses = "unreviewed-adapter"; },
+  ];
+  for (const mutate of mutations) {
+    const definition = structuredClone(original);
+    mutate(definition);
+    assert.throws(
+      () => createApizzaFsqShadowV1ExecutionLock({
+        definition,
+        profile: apizzaMichiganProfile,
+        deploymentIdentity: "identity-drift-test",
+      }),
+      /identity has drifted/,
+    );
+  }
+
+  const wrongProfile = structuredClone(apizzaMichiganProfile);
+  wrongProfile.id = "tacoboutmichigan";
+  assert.throws(
+    () => createApizzaFsqShadowV1ExecutionLock({
+      definition: original,
+      profile: wrongProfile,
+      deploymentIdentity: "profile-drift-test",
+    }),
+    /profile, catalog, or host policy has drifted/,
+  );
+
+  const tacoDefinition = structuredClone(original);
+  tacoDefinition.profile = "tacoboutmichigan";
+  assert.throws(
+    () => createShadowExecutionLock({
+      definition: tacoDefinition,
+      catalog: apizzaFsqShadowV1Catalog,
+      profile: tacoBoutMichiganProfile,
+      hostPolicy: apizzaFsqShadowV1HostPolicy,
+      deploymentIdentity: "fresh-wrong-product-lock",
+    }),
+    /not owned by the exact profile policy/,
+  );
+});
 
 function canonicalResource(): PostgresSnapshotResource {
   return {
@@ -255,14 +327,16 @@ test("runs the complete two-source shadow without retaining raw FSQ rows", async
     fsqResource,
     canonicalResource: canonical,
   });
+  const execution = shadowExecutionBinding(definition, "test-apizza-fsq-shadow");
   const expectedRuntimePolicyDigest = digest({
     kind: "read_only_shadow",
-    deploymentIdentity: "test-apizza-fsq-shadow",
+    deploymentIdentity: execution.deploymentIdentity,
     allowedPartitions: ["US"],
     sourceReadGrants: sourceReadGrants.map((grant) => ({
       ...grant,
       operations: [...grant.operations],
     })),
+    executionLock: execution.executionLock,
     definition,
     catalog: apizzaFsqShadowV1Catalog,
     hostPolicy: apizzaFsqShadowV1HostPolicy,
@@ -286,7 +360,7 @@ test("runs the complete two-source shadow without retaining raw FSQ rows", async
       stateStore: state,
       hostPolicy: apizzaFsqShadowV1HostPolicy,
       observedFreeDiskBytes: async () => 10_000_000_000,
-      deploymentIdentity: "test-apizza-fsq-shadow",
+      ...execution,
       allowedPartitions: ["US"],
       sourceReadGrants,
       now: () => new Date("2026-09-06T12:00:00.000Z"),
@@ -295,6 +369,16 @@ test("runs the complete two-source shadow without retaining raw FSQ rows", async
 
     assert.equal(result.status, "succeeded");
     assert.equal(result.runtimeClass, "read_only_shadow");
+    assert.deepEqual(result.bindings, {
+      ...execution.executionLock,
+      runtimePolicyDigest: expectedRuntimePolicyDigest,
+    });
+    assert(Object.isFrozen(result.bindings));
+    assert(Object.isFrozen(result));
+    assert(Object.isFrozen(result.stages));
+    assert(Object.isFrozen(result.stages[0]!.outputs));
+    assert.throws(() => { result.bindings = null; }, TypeError);
+    assert.throws(() => { result.stages[0]!.metrics.records = 0; }, TypeError);
     assert.deepEqual(result.stages.map((stage) => stage.stageId), [
       "fsq-source",
       "normalize",
@@ -417,7 +501,7 @@ test("rejects undeclared FSQ fields before any raw artifact is written", async (
       stateStore: state,
       hostPolicy: apizzaFsqShadowV1HostPolicy,
       observedFreeDiskBytes: async () => 10_000_000_000,
-      deploymentIdentity: "test-apizza-fsq-shadow-invalid",
+      ...shadowExecutionBinding(definition, "test-apizza-fsq-shadow-invalid"),
       allowedPartitions: ["US"],
       sourceReadGrants: createApizzaFsqShadowV1ReadGrants({
         definition,
@@ -539,7 +623,7 @@ test("the terminal verifier rejects schema-valid matcher semantic tampering", as
       stateStore: state,
       hostPolicy: apizzaFsqShadowV1HostPolicy,
       observedFreeDiskBytes: async () => 10_000_000_000,
-      deploymentIdentity: "test-apizza-fsq-shadow-tamper",
+      ...shadowExecutionBinding(definition, "test-apizza-fsq-shadow-tamper"),
       allowedPartitions: ["US"],
       sourceReadGrants: createApizzaFsqShadowV1ReadGrants({
         definition,

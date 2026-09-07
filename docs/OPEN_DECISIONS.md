@@ -21,9 +21,13 @@ Confirmed through 2026-09-05:
    remains mandatory and fails closed on any contrary finding.
 10. BuildHere `verification` is not a generic manual override. Changes require
     a distinct append-only, audited reviewer-decision event.
+11. The exact app-owned Pizza and Taco boundary artifacts are observed through
+    metadata-only raw-byte locks. Both activation targets remain unbound and
+    external apply remains disabled.
 
 Remaining implementation gates are source-by-source terms and redistribution
-review, publication of the BuildHere field matrix and target contract, a
+review, publication of the BuildHere field matrix and target contract, an
+application-issued target-authorization receipt joined by apply readiness, a
 production-grade out-of-process apply executor, real adapters/sinks, iMac
 Node 22/SQLite fault tests, and rehearsed no-dual-writer cutovers. The narrow
 synthetic APizza/FSQ preview is executable, but none of these profiles can

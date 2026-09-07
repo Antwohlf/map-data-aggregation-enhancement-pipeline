@@ -22,8 +22,9 @@ import {
   PreviewExecutionError,
   PreviewExecutor,
   ReadOnlyShadowExecutor,
+  createShadowExecutionLock,
 } from "@map-pipeline/executor";
-import type { StagePlugin } from "@map-pipeline/sdk";
+import { defineInertProfile, type StagePlugin } from "@map-pipeline/sdk";
 import { SqliteRunStateStore } from "@map-pipeline/state-sqlite";
 
 import {
@@ -557,6 +558,35 @@ test("read-only shadow execution requires one exact host-owned source grant", as
     },
   };
   const plugins = { ...apizzaFsqPreviewPlugins, "fixture-json-source": sourcePlugin };
+  const shadowProfile = defineInertProfile({
+    id: "apizzamichigan",
+    policyVersion: 1,
+    deploymentEnabled: false,
+    sources: [],
+    shadowSources: [{
+      stageId: sourceStage.id,
+      pluginId: sourceStage.uses,
+      policyId,
+      adapter: "postgres-readonly",
+      effectClass: "network.read",
+      resourceUri,
+      operations: ["snapshot"],
+      outputPorts: ["records"],
+      artifactClass: "raw",
+      activationEligible: false,
+    }],
+    targetContract: {
+      ownerRepository: "example/synthetic",
+      contractName: "synthetic-shadow-target",
+      supportedVersions: [],
+      digestKind: "sha256-canonical-json-v1",
+      digest: null,
+    },
+    observedTargetContract: null,
+    pluginLockDigest: null,
+    invariants: ["synthetic shadow identity test"],
+    effectPolicy: [],
+  });
   const reader: ResourceReader = {
     async read(input) {
       assert.equal(input.partition, "US");
@@ -606,6 +636,14 @@ test("read-only shadow execution requires one exact host-owned source grant", as
     hostPolicy: apizzaPreviewHostPolicy,
     observedFreeDiskBytes: async () => 10_000_000_000,
     deploymentIdentity: "local-apizza-shadow-test",
+    profile: shadowProfile,
+    executionLock: createShadowExecutionLock({
+      definition,
+      catalog,
+      profile: shadowProfile,
+      hostPolicy: apizzaPreviewHostPolicy,
+      deploymentIdentity: "local-apizza-shadow-test",
+    }),
     allowedPartitions: ["US"],
   };
   const sourceReadGrant = {
@@ -648,6 +686,27 @@ test("read-only shadow execution requires one exact host-owned source grant", as
         /Shadow source read grant is invalid/,
       );
     }
+    for (const mutate of [
+      (changed: PipelineDefinition) => { changed.profile = "tacoboutmichigan"; },
+      (changed: PipelineDefinition) => { changed.metadata.name = "taco-shadow"; },
+      (changed: PipelineDefinition) => { changed.metadata.version += 1; },
+      (changed: PipelineDefinition) => { changed.stages[0]!.uses = "unreviewed-adapter"; },
+      (changed: PipelineDefinition) => {
+        changed.stages[0]!.sourceBindings![0]!.policyId = "taco-source";
+      },
+    ]) {
+      const changed = structuredClone(definition);
+      mutate(changed);
+      assert.throws(
+        () => new ReadOnlyShadowExecutor({
+          ...commonOptions,
+          definition: changed,
+          sourceReadGrants: [sourceReadGrant],
+        }),
+        /Shadow execution lock does not match/,
+      );
+    }
+    assert.equal(state.getRun("shadow-identity-drift"), null);
     const executor = new ReadOnlyShadowExecutor({
       ...commonOptions,
       sourceReadGrants: [sourceReadGrant],
@@ -655,6 +714,9 @@ test("read-only shadow execution requires one exact host-owned source grant", as
     const report = await executor.run({ partition: "US", runId: "shadow-policy-run" });
     assert.equal(report.runtimeClass, "read_only_shadow");
     assert.equal(report.status, "succeeded");
+    assert.equal(report.bindings?.profile, "apizzamichigan");
+    assert.equal(report.bindings?.definitionDigest, commonOptions.executionLock.definitionDigest);
+    assert(Object.isFrozen(report.bindings));
   } finally {
     state.close();
     await rm(runtimeRoot, { recursive: true, force: true });

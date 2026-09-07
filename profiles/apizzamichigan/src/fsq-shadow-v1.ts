@@ -15,15 +15,23 @@ import {
 import {
   PIPELINE_API_VERSION,
   canonicalize,
+  computeHostPolicyDigest,
+  computePluginCatalogDigest,
+  computeProfilePolicyDigest,
   digest,
   type CanonicalJson,
   type CanonicalJsonValidator,
   type HostPolicyManifest,
   type PipelineDefinition,
+  type ProfileDeclaration,
   type PreviewSourceDatasetProvenance,
   type StagePluginManifest,
 } from "@map-pipeline/core";
-import type { ShadowSourceReadGrant } from "@map-pipeline/executor";
+import {
+  createShadowExecutionLock,
+  type ShadowExecutionLock,
+  type ShadowSourceReadGrant,
+} from "@map-pipeline/executor";
 import { definePlugin, type StagePlugin } from "@map-pipeline/sdk";
 
 import { APIZZA_SOURCE_CANDIDATE_SCHEMA } from "./candidate-v1.js";
@@ -765,11 +773,100 @@ export const apizzaFsqShadowV1HostPolicy: HostPolicyManifest = {
   },
 };
 
+const APIZZA_FSQ_SHADOW_PROFILE_POLICY_DIGEST =
+  "sha256:442cb3324743cfe8607cdfe4f54c7f84d57653c2be0d7c54a341e1682de22eaf";
+const APIZZA_FSQ_SHADOW_CATALOG_DIGEST =
+  "sha256:485664321200bcb33d24d5da799bca12f879d3f7394e1a38c7d4cb7f5fa6044c";
+const APIZZA_FSQ_SHADOW_HOST_POLICY_DIGEST =
+  "sha256:b45ac6afbb41d08093188c5a368465b3f5932a142a129a2bb1ffc262ec172c4b";
+
+function assertApizzaFsqShadowV1DefinitionIdentity(definition: PipelineDefinition): void {
+  const stageIdentity = definition.stages.map((stage) => ({
+    id: stage.id,
+    uses: stage.uses,
+    sourceBindings: (stage.sourceBindings ?? []).map((binding) => ({
+      policyId: binding.policyId,
+      effectClass: binding.effectClass,
+      resourceUri: binding.resourceUri,
+      operations: [...binding.operations],
+      outputPorts: [...binding.outputPorts],
+      artifactClass: binding.artifactClass,
+    })),
+  }));
+  const expectedStageIdentity = [
+    {
+      id: FSQ_SOURCE_STAGE_ID,
+      uses: fsqSourceManifest.id,
+      sourceBindings: [{
+        policyId: FSQ_POLICY_ID,
+        effectClass: "artifact.read",
+        resourceUri: APIZZA_FSQ_SHADOW_SOURCE_URI,
+        operations: ["snapshot"],
+        outputPorts: ["rows"],
+        artifactClass: "raw",
+      }],
+    },
+    { id: NORMALIZE_STAGE_ID, uses: normalizeManifest.id, sourceBindings: [] },
+    {
+      id: CANONICAL_SOURCE_STAGE_ID,
+      uses: canonicalSourceManifest.id,
+      sourceBindings: [{
+        policyId: CANONICAL_POLICY_ID,
+        effectClass: "network.read",
+        resourceUri: APIZZA_CANONICAL_SHADOW_SOURCE_URI,
+        operations: ["snapshot"],
+        outputPorts: ["canonical"],
+        artifactClass: "derived",
+      }],
+    },
+    { id: MATCH_STAGE_ID, uses: apizzaMatchingV1Manifest.id, sourceBindings: [] },
+    { id: VERIFY_STAGE_ID, uses: verifyManifest.id, sourceBindings: [] },
+  ];
+  if (
+    definition.apiVersion !== PIPELINE_API_VERSION ||
+    definition.kind !== "Pipeline" ||
+    definition.profile !== "apizzamichigan" ||
+    definition.metadata.name !== "apizza-fsq-read-only-shadow" ||
+    definition.metadata.version !== 1 ||
+    canonicalize(definition.partitions ?? []) !== canonicalize(["US"]) ||
+    canonicalize(definition.requiredSinks) !== canonicalize([VERIFY_STAGE_ID]) ||
+    canonicalize(definition.optionalSinks) !== canonicalize([]) ||
+    canonicalize(stageIdentity as unknown as CanonicalJson) !==
+      canonicalize(expectedStageIdentity as unknown as CanonicalJson)
+  ) {
+    throw new TypeError("APizza FSQ shadow definition identity has drifted");
+  }
+}
+
+export function createApizzaFsqShadowV1ExecutionLock(input: {
+  definition: PipelineDefinition;
+  profile: ProfileDeclaration;
+  deploymentIdentity: string;
+}): Readonly<ShadowExecutionLock> {
+  assertApizzaFsqShadowV1DefinitionIdentity(input.definition);
+  if (
+    input.profile.id !== "apizzamichigan" ||
+    computeProfilePolicyDigest(input.profile) !== APIZZA_FSQ_SHADOW_PROFILE_POLICY_DIGEST ||
+    computePluginCatalogDigest(apizzaFsqShadowV1Catalog) !== APIZZA_FSQ_SHADOW_CATALOG_DIGEST ||
+    computeHostPolicyDigest(apizzaFsqShadowV1HostPolicy) !== APIZZA_FSQ_SHADOW_HOST_POLICY_DIGEST
+  ) {
+    throw new TypeError("APizza FSQ shadow profile, catalog, or host policy has drifted");
+  }
+  return createShadowExecutionLock({
+    definition: input.definition,
+    catalog: apizzaFsqShadowV1Catalog,
+    profile: input.profile,
+    hostPolicy: apizzaFsqShadowV1HostPolicy,
+    deploymentIdentity: input.deploymentIdentity,
+  });
+}
+
 export function createApizzaFsqShadowV1ReadGrants(input: {
   definition: PipelineDefinition;
   fsqResource: JsonFileSnapshotResource;
   canonicalResource: PostgresSnapshotResource;
 }): readonly ShadowSourceReadGrant[] {
+  assertApizzaFsqShadowV1DefinitionIdentity(input.definition);
   if (
     input.fsqResource.resourceUri !== APIZZA_FSQ_SHADOW_SOURCE_URI ||
     input.fsqResource.schema.name !== APIZZA_FSQ_RELEASE_ROWS_SCHEMA.name ||

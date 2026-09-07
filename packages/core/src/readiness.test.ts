@@ -120,12 +120,15 @@ const profile: ActiveProfileDeclaration = {
       redistribution: "approved",
     },
   ],
+  shadowSources: [],
   targetContract: {
-    ownerRepository: "synthetic",
+    ownerRepository: "example/synthetic",
     contractName: "synthetic-write-contract",
     supportedVersions: [1],
+    digestKind: "sha256-canonical-json-v1",
     digest: contractDigest,
   },
+  observedTargetContract: null,
   invariants: [],
   effectPolicy: [
     {
@@ -154,6 +157,7 @@ const deployment: DeploymentManifest = {
   profilePolicyDigest: computeProfilePolicyDigest(profile),
   pluginLockDigest,
   targetContractVersion: 1,
+  targetContractDigestKind: "sha256-canonical-json-v1",
   targetContractDigest: contractDigest,
   effectAuthorizations: [
     {
@@ -196,6 +200,40 @@ deployment.hostPolicyDigest = computeHostPolicyDigest(hostPolicy);
 
 test("apply readiness joins definition, profile, lock, contract, and deployment", () => {
   assert.doesNotThrow(() => assertApplyReady(sourceBoundInputs()));
+});
+
+test("raw observed target bytes cannot be promoted into apply authority", () => {
+  const changedProfile = structuredClone(profile);
+  changedProfile.observedTargetContract = {
+    ownerRepository: changedProfile.targetContract.ownerRepository,
+    contractName: changedProfile.targetContract.contractName,
+    version: 1,
+    profile: changedProfile.id,
+    entity: "synthetic",
+    rawByteDigest: contractDigest,
+    byteLength: 128,
+    activationEligible: false,
+    source: {
+      repository: changedProfile.targetContract.ownerRepository,
+      revision: "a".repeat(40),
+      path: "contracts/synthetic-write-contract.v1.json",
+      digestKind: "sha256-raw-bytes-v1",
+    },
+  };
+  const changedDeployment = {
+    ...structuredClone(deployment),
+    profilePolicyDigest: computeProfilePolicyDigest(changedProfile),
+  };
+  assert.throws(
+    () => assertApplyReady({
+      definition,
+      catalog,
+      profile: changedProfile,
+      deployment: changedDeployment,
+      hostPolicy,
+    }),
+    /Target contract binding is invalid/,
+  );
 });
 
 test("apply readiness rejects a deployment grant outside profile policy", () => {

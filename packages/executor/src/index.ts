@@ -3,6 +3,10 @@ import { randomUUID } from "node:crypto";
 import {
   assertPreviewEffectAuthorized,
   canonicalize,
+  computeDefinitionDigest,
+  computeHostPolicyDigest,
+  computePluginCatalogDigest,
+  computeProfilePolicyDigest,
   digest,
   evaluateAdmission,
   validateDefinition,
@@ -21,6 +25,7 @@ import {
   type HostPolicyManifest,
   type JsonArtifactStore,
   type PipelineDefinition,
+  type ProfileDeclaration,
   type ResourceReader,
   type RunStateStore,
   type SchemaRef,
@@ -1092,6 +1097,8 @@ export interface PreviewExecutionReport {
   partition: string;
   startedAt: string;
   finishedAt: string;
+  /** Exact host-owned runtime identity for a shadow run; fixture previews have no deployment binding. */
+  bindings: ShadowExecutionBindings | null;
   stages: PreviewStageReport[];
 }
 
@@ -1129,8 +1136,32 @@ export interface ShadowSourceReadGrant {
   };
 }
 
+/**
+ * Exact, non-authorizing identity bundle created by the host before a shadow
+ * executor is constructed. It binds dynamic definition bytes to reviewed
+ * product, plugin-catalog, and host-policy identities without granting writes.
+ */
+export interface ShadowExecutionLock {
+  schemaVersion: 1;
+  deploymentIdentity: string;
+  profile: string;
+  profilePolicyVersion: number;
+  profilePolicyDigest: string;
+  pipeline: string;
+  pipelineVersion: number;
+  definitionDigest: string;
+  pluginCatalogDigest: string;
+  hostPolicyDigest: string;
+}
+
+export interface ShadowExecutionBindings extends ShadowExecutionLock {
+  runtimePolicyDigest: string;
+}
+
 export interface ReadOnlyShadowExecutorOptions extends PreviewExecutorOptions {
   deploymentIdentity: string;
+  profile: ProfileDeclaration;
+  executionLock: ShadowExecutionLock;
   allowedPartitions: readonly string[];
   sourceReadGrants: readonly ShadowSourceReadGrant[];
 }
@@ -1140,6 +1171,99 @@ interface ExecutorRuntimePolicy {
   deploymentIdentity: string;
   allowedPartitions: readonly string[];
   sourceReadGrants: readonly ShadowSourceReadGrant[];
+  executionLock: ShadowExecutionLock | null;
+}
+
+const SHA256_DIGEST = /^sha256:[a-f0-9]{64}$/;
+
+function assertShadowExecutionLock(input: {
+  definition: PipelineDefinition;
+  catalog: Readonly<Record<string, StagePluginManifest>>;
+  profile: ProfileDeclaration;
+  hostPolicy: HostPolicyManifest;
+  deploymentIdentity: string;
+  executionLock: ShadowExecutionLock;
+}): void {
+  const { definition, catalog, profile, hostPolicy, deploymentIdentity, executionLock } = input;
+  if (
+    executionLock.schemaVersion !== 1 ||
+    !executionLock.deploymentIdentity ||
+    executionLock.deploymentIdentity.trim() !== executionLock.deploymentIdentity ||
+    executionLock.deploymentIdentity !== deploymentIdentity ||
+    executionLock.profile !== definition.profile ||
+    executionLock.profile !== profile.id ||
+    executionLock.profilePolicyVersion !== profile.policyVersion ||
+    executionLock.pipeline !== definition.metadata.name ||
+    executionLock.pipelineVersion !== definition.metadata.version ||
+    !Number.isSafeInteger(executionLock.profilePolicyVersion) ||
+    executionLock.profilePolicyVersion < 1 ||
+    !Number.isSafeInteger(executionLock.pipelineVersion) ||
+    executionLock.pipelineVersion < 1 ||
+    !SHA256_DIGEST.test(executionLock.profilePolicyDigest) ||
+    !SHA256_DIGEST.test(executionLock.definitionDigest) ||
+    !SHA256_DIGEST.test(executionLock.pluginCatalogDigest) ||
+    !SHA256_DIGEST.test(executionLock.hostPolicyDigest) ||
+    executionLock.profilePolicyDigest !== computeProfilePolicyDigest(profile) ||
+    executionLock.definitionDigest !== computeDefinitionDigest(definition) ||
+    executionLock.pluginCatalogDigest !== computePluginCatalogDigest(catalog) ||
+    executionLock.hostPolicyDigest !== computeHostPolicyDigest(hostPolicy)
+  ) {
+    throw new PreviewExecutionError(
+      "Shadow execution lock does not match the exact profile, definition, catalog, and host policy",
+    );
+  }
+  const usedShadowSources = new Set<number>();
+  for (const stage of definition.stages) {
+    const manifest = catalog[stage.uses];
+    if (!manifest) continue;
+    for (const binding of stage.sourceBindings ?? []) {
+      const matches = profile.shadowSources
+        .map((source, index) => ({ source, index }))
+        .filter(({ source }) =>
+          source.stageId === stage.id &&
+          source.pluginId === stage.uses &&
+          source.policyId === binding.policyId &&
+          source.adapter === manifest.sourceAdapter &&
+          source.effectClass === binding.effectClass &&
+          source.resourceUri === binding.resourceUri &&
+          sameStrings(source.operations, binding.operations) &&
+          sameStrings(source.outputPorts, binding.outputPorts) &&
+          source.artifactClass === binding.artifactClass &&
+          source.activationEligible === false);
+      if (matches.length !== 1) {
+        throw new PreviewExecutionError(
+          `Shadow source ${stage.id} is not owned by the exact profile policy`,
+        );
+      }
+      usedShadowSources.add(matches[0]!.index);
+    }
+  }
+  if (usedShadowSources.size !== profile.shadowSources.length) {
+    throw new PreviewExecutionError("Shadow profile contains missing or unused source policies");
+  }
+}
+
+export function createShadowExecutionLock(input: {
+  definition: PipelineDefinition;
+  catalog: Readonly<Record<string, StagePluginManifest>>;
+  profile: ProfileDeclaration;
+  hostPolicy: HostPolicyManifest;
+  deploymentIdentity: string;
+}): Readonly<ShadowExecutionLock> {
+  const executionLock = freezeRecursively({
+    schemaVersion: 1 as const,
+    deploymentIdentity: input.deploymentIdentity,
+    profile: input.profile.id,
+    profilePolicyVersion: input.profile.policyVersion,
+    profilePolicyDigest: computeProfilePolicyDigest(input.profile),
+    pipeline: input.definition.metadata.name,
+    pipelineVersion: input.definition.metadata.version,
+    definitionDigest: computeDefinitionDigest(input.definition),
+    pluginCatalogDigest: computePluginCatalogDigest(input.catalog),
+    hostPolicyDigest: computeHostPolicyDigest(input.hostPolicy),
+  });
+  assertShadowExecutionLock({ ...input, executionLock });
+  return executionLock;
 }
 
 function validateRuntimePolicyShape(policy: ExecutorRuntimePolicy): void {
@@ -1151,6 +1275,15 @@ function validateRuntimePolicyShape(policy: ExecutorRuntimePolicy): void {
     policy.allowedPartitions.some((partition) => !partition || partition.trim() !== partition)
   ) {
     throw new PreviewExecutionError("Runtime policy identity or partitions are invalid");
+  }
+  if (
+    (policy.kind === "fixture_preview" && policy.executionLock !== null) ||
+    (policy.kind === "read_only_shadow" && (
+      policy.executionLock === null ||
+      policy.executionLock.deploymentIdentity !== policy.deploymentIdentity
+    ))
+  ) {
+    throw new PreviewExecutionError("Runtime policy shadow execution lock is invalid");
   }
   for (const grant of policy.sourceReadGrants) {
     let resourceUriValid = false;
@@ -1220,6 +1353,7 @@ class OrderedArtifactExecutor {
         ...grant,
         operations: [...grant.operations],
       })),
+      executionLock: this.#runtimePolicy.executionLock,
       definition: this.#options.definition,
       catalog: this.#options.catalog,
       hostPolicy: this.#options.hostPolicy,
@@ -1411,7 +1545,7 @@ class OrderedArtifactExecutor {
         finishedAt,
         expectedStageIds: this.#options.definition.stages.map((stage) => stage.id),
       });
-      return {
+      return freezeRecursively({
         mode: "preview",
         runtimeClass: this.#runtimePolicy.kind,
         status: "succeeded",
@@ -1422,8 +1556,14 @@ class OrderedArtifactExecutor {
         partition: input.partition,
         startedAt,
         finishedAt,
+        bindings: this.#runtimePolicy.executionLock === null
+          ? null
+          : freezeRecursively({
+            ...this.#runtimePolicy.executionLock,
+            runtimePolicyDigest: this.#runtimePolicyDigest,
+          }),
         stages: stageReports,
-      };
+      });
     } catch (error) {
       if (runStarted && this.#options.stateStore.getRun(runId)?.status === "running") {
         this.#options.stateStore.failRun({
@@ -1690,6 +1830,7 @@ export class PreviewExecutor {
       deploymentIdentity: "local-preview",
       allowedPartitions: [...(options.definition.partitions ?? [])],
       sourceReadGrants: [],
+      executionLock: null,
     });
   }
 
@@ -1704,15 +1845,28 @@ export class ReadOnlyShadowExecutor {
   constructor(options: ReadOnlyShadowExecutorOptions) {
     const {
       deploymentIdentity,
+      profile,
+      executionLock,
       allowedPartitions,
       sourceReadGrants,
       ...executorOptions
     } = options;
+    const safeProfile = freezeRecursively(structuredClone(profile));
+    const safeExecutionLock = freezeRecursively(structuredClone(executionLock));
+    assertShadowExecutionLock({
+      definition: executorOptions.definition,
+      catalog: executorOptions.catalog,
+      profile: safeProfile,
+      hostPolicy: executorOptions.hostPolicy,
+      deploymentIdentity,
+      executionLock: safeExecutionLock,
+    });
     this.#executor = new OrderedArtifactExecutor(executorOptions, {
       kind: "read_only_shadow",
       deploymentIdentity,
       allowedPartitions,
       sourceReadGrants,
+      executionLock: safeExecutionLock,
     });
   }
 
