@@ -33,6 +33,8 @@ their source terms, target contracts, and deployment manifests are approved.
 - A separately gated read-only shadow executor and attested PostgreSQL snapshot
   adapter.
 - An executable APizzaMichigan FSQ-shaped fixture preview.
+- An APizza-owned, pure two-input legacy-source matcher with synthetic boundary
+  goldens and no product-write authority.
 
 The repository executes local synthetic previews. It also contains a distinct
 non-authoritative shadow runtime that may read one exact host-configured

@@ -89,7 +89,9 @@ and deployment-disabled.
 - Restart/resume from a partially completed run.
 - Durable job workers, claims, heartbeats, retries, or cancellation recovery.
 - Artifact garbage collection, backup, and restore rehearsal.
-- APizza-owned canonical matching and record-by-record legacy parity reports.
+- A complete APizza shadow definition, terminal verified match report, and
+  independently captured record-by-record legacy parity evidence. The pure
+  APizza matcher and its synthetic source-audited goldens are implemented.
 - Evidence, review, canonical, or public database sinks.
 - Apply mode.
 
