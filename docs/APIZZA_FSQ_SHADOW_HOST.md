@@ -34,6 +34,17 @@ digest.
 
 ## Host-owned inputs
 
+The host preparation helper `projectApizzaFsqHostRowsV1` projects up to 5,000
+existing FSQ rows into the bounded input contract. It removes unapproved fields,
+normalizes nullable values, excludes removal/privacy-flagged records, and reports
+invalid-row counts. Closure dates and other flags are preserved for normalization.
+This helper neither approves a source nor establishes its upstream release.
+
+For historical captures, record the original file checksum, projected checksum,
+selection rule, capture time, and any unknown upstream release information in a
+private provenance record. A host file checksum identifies those exact bytes;
+it must never be presented as a verified Foursquare release version.
+
 None of these files belong in the public repository:
 
 - the projected FSQ rows;
