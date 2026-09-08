@@ -11,6 +11,7 @@ import { execFileSync } from 'child_process';
 import { supabaseSyncProfile } from '../lib/supabase-sync-profiles.mjs';
 import {
   bulkRpcStatusArgs,
+  canApplyQaRepair,
   classificationQaArgs,
   classifierHealthArgs,
   syncReadinessArgs,
@@ -173,7 +174,7 @@ function qaHardIssueIsRepairable(qa) {
 
 function runQaWithRepair(options) {
   let qa = run(NODE, classificationQaArgs(options), { json: true });
-  for (let attempt = 0; attempt < 3 && options.entity === 'pizza' && qa.state === 'FAIL' && !options.ids.length && qaHardIssueIsRepairable(qa); attempt++) {
+  for (let attempt = 0; attempt < 3 && canApplyQaRepair(options) && qa.state === 'FAIL' && !options.ids.length && qaHardIssueIsRepairable(qa); attempt++) {
     console.log(`QA found ${qa.flags.styleWithoutConfidence.length} missing-confidence rows during concurrent processing; repairing and retrying.`);
     const repair = run(NODE, [
       'scripts/ops/repair-missing-classification-confidence.mjs',

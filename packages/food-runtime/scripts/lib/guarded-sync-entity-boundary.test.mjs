@@ -3,10 +3,18 @@ import test from 'node:test'
 
 import {
   bulkRpcStatusArgs,
+  canApplyQaRepair,
   classificationQaArgs,
   classifierHealthArgs,
   syncReadinessArgs,
 } from './guarded-sync-entity-boundary.mjs'
+
+test('dry-run publication cannot authorize local QA repair writes', () => {
+  assert.equal(canApplyQaRepair({ entity: 'pizza', apply: false }), false)
+  assert.equal(canApplyQaRepair({ entity: 'pizza' }), false)
+  assert.equal(canApplyQaRepair({ entity: 'taco', apply: true }), false)
+  assert.equal(canApplyQaRepair({ entity: 'pizza', apply: true }), true)
+})
 
 const tacoOptions = Object.freeze({
   entity: 'taco',

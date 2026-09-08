@@ -4,6 +4,10 @@ function checkedEntity(entity) {
   return supabaseSyncProfile(entity).entity
 }
 
+export function canApplyQaRepair(options) {
+  return options.apply === true && checkedEntity(options.entity) === 'pizza'
+}
+
 export function classifierHealthArgs(entity) {
   return ['scripts/ops/classifier-health-report.mjs', '--entity', checkedEntity(entity), '--json']
 }
