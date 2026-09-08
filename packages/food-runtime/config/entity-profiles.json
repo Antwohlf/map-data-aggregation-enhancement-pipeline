@@ -1,0 +1,45 @@
+{
+  "version": 1,
+  "profiles": {
+    "pizza": {
+      "display_name": "Pizza",
+      "canonical_table": "pizza_places",
+      "primary_classification_field": "style",
+      "taxonomy_file": "config/pizza-style-taxonomy.json",
+      "source_policy_file": "config/source-policy.json",
+      "source_pipeline": {
+        "enabled": true,
+        "config_file": "config/source-pipeline.json"
+      },
+      "editorial": {
+        "picks": {
+          "minimum_rating": 8,
+          "label": "Anthony's Picks"
+        }
+      },
+      "regions": ["MI", "NY", "CA", "TX"],
+      "public_route": "/",
+      "admin_route": "/admin/reviews?entity=pizza"
+    },
+    "taco": {
+      "display_name": "Taco",
+      "canonical_table": "taco_places",
+      "primary_classification_field": "style",
+      "taxonomy_file": "scripts/lib/enrichment-entity.mjs",
+      "source_policy_file": null,
+      "source_pipeline": {
+        "enabled": true,
+        "config_file": "config/source-pipeline-taco.json"
+      },
+      "editorial": {
+        "picks": {
+          "minimum_rating": 8,
+          "label": "Anthony's Picks"
+        }
+      },
+      "regions": ["MI", "NY"],
+      "public_route": "/tacos",
+      "admin_route": "/admin/reviews?entity=taco"
+    }
+  }
+}

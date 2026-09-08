@@ -8,8 +8,11 @@ policy, and destination mappings remain owned by the APizzaMichigan,
 TacoboutMichigan, and BuildHere.city profiles.
 
 This is a public, Apache-2.0-licensed repository. It contains no production
-credentials or runtime state. All real product profiles remain inert until
-their source terms, target contracts, and deployment manifests are approved.
+credentials or runtime state. Generic executor product profiles remain inert
+until their source terms, target contracts, and deployment manifests are approved.
+The separately gated [food compatibility runtime](docs/FOOD_PRODUCTION_RUNTIME.md)
+extracts the existing Pizza/Taco jobs for coordinated host migration; it does
+not enable writes through the generic executor.
 
 ## Current scope
 
@@ -51,7 +54,7 @@ their source terms, target contracts, and deployment manifests are approved.
 The repository executes local synthetic previews. It also contains a distinct
 non-authoritative shadow runtime that can join one exact host-registered,
 bounded FSQ OS release projection to one exact host-configured PostgreSQL view
-under a dedicated read-only credential. It does **not** download the upstream
+under a dedicated read-only credential. That shadow runtime does **not** download the upstream
 FSQ release, retain a raw source artifact, or write product databases. Real
 profiles have no effect policy or plugin-lock binding. The existing application
 pipelines remain authoritative until source-by-source cutover gates and

@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 1,
+  "profiles": {
+    "apizzamichigan": {
+      "entity": "pizza",
+      "sourceConfig": "config/source-pipeline.json",
+      "publishStateStem": "supabase",
+      "sourceArgs": ["--apply", "--regions", "MI,NY", "--max-work-units", "6", "--max-new-places", "50"],
+      "publishArgs": []
+    },
+    "tacoboutmichigan": {
+      "entity": "taco",
+      "sourceConfig": "config/source-pipeline-taco.json",
+      "publishStateStem": "taco-supabase",
+      "sourceArgs": ["--apply", "--regions", "MI,NY", "--max-work-units", "2", "--max-new-places", "25"],
+      "publishArgs": ["--entity", "taco", "--bulk-rpc", "--checkpoint", "scripts/.taco-supabase-sync-checkpoint.json"]
+    }
+  },
+  "tasks": {
+    "source": {"script": "scripts/ops/run-source-pipeline.mjs", "profileArgs": "sourceArgs"},
+    "publish": {"script": "scripts/ops/auto-guarded-supabase-sync.mjs", "profileArgs": "publishArgs"},
+    "classify": {"script": "scripts/enrichment/agents/llm-classifier.mjs", "shared": true, "args": ["--worker-id", "launchd-classify"]},
+    "scrape": {"script": "scripts/enrichment/agents/web-scraper.mjs", "shared": true, "args": ["--worker-id", "launchd-scraper"]},
+    "reconcile-classifier": {"script": "scripts/ops/reconcile-classifier-queue.mjs", "shared": true, "args": ["--apply"]},
+    "feed-classifier": {"script": "scripts/ops/feed-classifier-retries.mjs", "shared": true, "args": ["--apply"]},
+    "parse-menu": {"script": "scripts/enrichment/slowlane/menu-parse-worker.mjs", "shared": true, "args": ["--max-jobs", "100"]},
+    "backup": {"script": "scripts/ops/create-local-backup.mjs", "shared": true, "args": ["--retention", "7"]}
+  }
+}

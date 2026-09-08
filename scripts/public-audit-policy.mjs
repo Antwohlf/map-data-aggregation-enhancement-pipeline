@@ -55,7 +55,9 @@ export function pathViolations(path) {
 export function textViolations(value) {
   const errors = [];
   if (absoluteHostPath.test(value)) errors.push("contains an absolute host path");
-  if (hostName.test(value)) errors.push("contains a local hostname");
+  // Conventional dotenv filenames are not host identities.
+  const hostText = value.replace(/(?<![\w.-])\.env\.local(?![\w.-])/g, ".env-placeholder");
+  if (hostName.test(hostText)) errors.push("contains a local hostname");
   if (privateNetwork.test(value)) errors.push("contains a private-network address");
   if (supabaseEndpoint.test(value)) errors.push("contains a Supabase project endpoint");
   if (signedUrl.test(value)) errors.push("contains a signed URL parameter");
