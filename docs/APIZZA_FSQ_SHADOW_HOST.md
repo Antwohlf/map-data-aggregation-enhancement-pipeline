@@ -12,10 +12,10 @@ legacy APizza pipeline remains authoritative.
 
 The checked-in source assertion at
 `profiles/apizzamichigan/policy/fsq-os-places-shadow-policy.v1.json` is
-deliberately `pending_owner_approval`. Its current policy digest is
-`sha256:a04bd31fb9f1c2b8fcdcae41065bda8391976dbbbc9438dc447856add99541d3`.
-The runner rejects that status before creating a database connection or
-runtime state.
+approved for the owner's requested restricted read-only comparison. Compute its
+current digest with `npm run digest:json --
+profiles/apizzamichigan/policy/fsq-os-places-shadow-policy.v1.json` and pin that
+digest in the private manifest. Pending or expired assertions remain rejected.
 
 Foursquare documents FSQ OS Places as Apache-2.0 data and now delivers it
 through the Places Portal. Those facts establish useful license evidence, but
@@ -26,13 +26,26 @@ host-side projection:
 - https://docs.foursquare.com/data-products/docs/access-fsq-os-places
 - https://opensource.foursquare.com/places-notice-txt/
 
-Before the policy can be approved, the owner must verify that the host file is
-an FSQ **OS Places** projection, record its exact release identity, and accept
-the conservative restricted-projection privacy classification. Approval
-changes the policy digest, so the private host manifest must then pin the new
-digest.
+The owner identified the existing source as FSQ **OS Places**, corroborated by
+the host's exporter configuration. The first comparison uses a historical host
+snapshot, identified by its exact checksum. Its original upstream release version
+is unknown; this run cannot establish freshness or official-release parity.
+The approval retains `containsPii: true`, private derived artifacts, no raw
+artifact retention, and no redistribution. It does not approve commercial FSQ
+API data or authorize publication.
 
 ## Host-owned inputs
+
+The host preparation helper `projectApizzaFsqHostRowsV1` projects up to 5,000
+existing FSQ rows into the bounded input contract. It removes unapproved fields,
+normalizes nullable values, excludes removal/privacy-flagged records, and reports
+invalid-row counts. Closure dates and other flags are preserved for normalization.
+This helper neither approves a source nor establishes its upstream release.
+
+For historical captures, record the original file checksum, projected checksum,
+selection rule, capture time, and any unknown upstream release information in a
+private provenance record. A host file checksum identifies those exact bytes;
+it must never be presented as a verified Foursquare release version.
 
 None of these files belong in the public repository:
 
@@ -56,7 +69,7 @@ The host manifest is an owner-only JSON file with this exact shape:
     "rootPath": "<absolute-normalized-private-input-directory>",
     "relativePath": "fsq-release.json",
     "expectedContentDigest": "sha256:<exact-file-byte-digest>",
-    "childIds": ["release:<exact-upstream-release-identity>"],
+    "childIds": ["host-snapshot:sha256:<original-file-digest>"],
     "maxRecords": 5000
   },
   "postgres": {

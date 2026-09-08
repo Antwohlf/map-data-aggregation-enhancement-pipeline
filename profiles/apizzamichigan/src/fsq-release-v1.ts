@@ -23,7 +23,7 @@ export interface ApizzaFsqReleaseRowV1 {
   unresolved_flags: string[];
 }
 
-const ROW_KEYS = [
+export const APIZZA_FSQ_RELEASE_ROW_KEYS = [
   "fsq_place_id",
   "name",
   "latitude",
@@ -49,7 +49,7 @@ function assertRecord(value: unknown, label: string): asserts value is Record<st
 
 function hasExactKeys(value: Record<string, unknown>): boolean {
   const actual = Object.keys(value).sort();
-  const expected = [...ROW_KEYS].sort();
+  const expected = [...APIZZA_FSQ_RELEASE_ROW_KEYS].sort();
   return actual.length === expected.length &&
     actual.every((key, index) => key === expected[index]);
 }
@@ -87,7 +87,7 @@ const FORBIDDEN_REMOVAL_OR_PRIVACY_FLAGS = new Set([
   "privatevenue",
 ]);
 
-function containsForbiddenRemovalOrPrivacyFlag(value: unknown): boolean {
+export function containsForbiddenRemovalOrPrivacyFlag(value: unknown): boolean {
   if (!Array.isArray(value)) return false;
   return value.some((flag) => typeof flag === "string" &&
     FORBIDDEN_REMOVAL_OR_PRIVACY_FLAGS.has(flag.toLowerCase().replace(/[^a-z]+/g, "")));

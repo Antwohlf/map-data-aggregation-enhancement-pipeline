@@ -98,8 +98,8 @@ artifact writes. The separately constructed read-only shadow runtime also
 requires an exact host-owned source grant and matching snapshot attestation; it
 still permits no non-preview writes. Both runtimes run plugins in-process with
 ambient Node authority and must use trusted plugins; this milestone is not a
-security sandbox. The checked-in FSQ source policy remains pending, so the host
-runner cannot start a real shadow run yet. Apply execution, shared host-wide
+security sandbox. The FSQ source policy permits restricted read-only comparison
+under a host-pinned manifest; it grants no product-write authority. Apply execution, shared host-wide
 admission, out-of-process supervision, external source acquisition, worker queues, writable product
 database adapters, and publication sinks remain future milestones.
 

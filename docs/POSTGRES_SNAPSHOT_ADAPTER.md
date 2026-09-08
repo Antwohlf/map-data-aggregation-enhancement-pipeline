@@ -98,7 +98,8 @@ plugin config.
 
 ## Current deployment status
 
-The adapter and shadow runtime are implemented and tested, but no iMac role,
-view, credential, or scheduler has been changed. The legacy APizza jobs remain
+The adapter and shadow runtime are implemented and tested. The iMac now has
+the dedicated contract owner, reader role, database identity, and input view
+for a bounded comparison. The legacy APizza jobs remain
 authoritative until matching parity, repeated shadow runs, rollback rehearsal,
 and an explicit no-dual-writer cutover all pass.
