@@ -19,6 +19,7 @@ import {
 } from '../lib/classification-backlog.mjs'
 import { enrichmentEntity } from '../lib/enrichment-entity.mjs'
 import { enrichmentProcessReport } from '../lib/enrichment-process-report.mjs'
+import { ollamaHealthTarget } from '../lib/ollama-health-target.mjs'
 
 const argv = process.argv.slice(2)
 const args = new Set(argv)
@@ -462,10 +463,7 @@ async function postgresReport(root, profile) {
 }
 
 async function ollamaReport() {
-  const configuredUrl = process.env.CLASSIFIER_OLLAMA_URL || process.env.OLLAMA_URL
-  const baseUrl = configuredUrl === 'http://localhost:11434' || configuredUrl === 'http://127.0.0.1:11434'
-    ? 'http://127.0.0.1:11435'
-    : (configuredUrl || 'http://127.0.0.1:11435')
+  const { baseUrl } = ollamaHealthTarget()
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), 3000)
   try {
@@ -565,7 +563,9 @@ async function main() {
   // is healthy, so the listener remains the authoritative remote check.
   const tunnelLaunchd = remoteTunnelControlReport()
   const processes = processReport()
-  const tunnel = tunnelReport()
+  const tunnel = ollamaHealthTarget().requiresTunnel
+    ? tunnelReport()
+    : { ok: true, skipped: true, port: null, recovery: 'direct Ollama connection; no tunnel required' }
   const queue = queueReport(root, ENTITY_PROFILE.entity)
   const [postgres, ollama] = await Promise.all([postgresReport(root, ENTITY_PROFILE), ollamaReport()])
   const health = classifyHealth({ git, launchd, tunnelLaunchd, processes, queue, postgres, ollama, tunnel })
@@ -594,7 +594,7 @@ async function main() {
   console.log('')
   console.log(`Generated: ${generatedAt}`)
   console.log(`Repo: \`${root}\``)
-  console.log(`Tunnel: ${tunnel.ok ? `ok (127.0.0.1:${tunnel.port})` : `failed (${tunnel.error})`}`)
+  console.log(`Tunnel: ${tunnel.skipped ? 'not required (direct Ollama)' : tunnel.ok ? `ok (127.0.0.1:${tunnel.port})` : `failed (${tunnel.error})`}`)
   console.log('')
 
   console.log('## Summary')
