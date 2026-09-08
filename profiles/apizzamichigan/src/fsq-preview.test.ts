@@ -97,6 +97,53 @@ test("the exported APizza definition rejects a non-US partition", async () => {
   }
 });
 
+test("host cancellation aborts the active stage and records a failed run", async () => {
+  const runtimeRoot = await mkdtemp(join(tmpdir(), "map-pipeline-preview-abort-"));
+  const state = new SqliteRunStateStore(join(runtimeRoot, "state.sqlite"));
+  let markReaderEntered!: () => void;
+  const readerEntered = new Promise<void>((resolveEntered) => {
+    markReaderEntered = resolveEntered;
+  });
+  const blockingReader: ResourceReader = {
+    read(input) {
+      markReaderEntered();
+      return new Promise((_resolve, reject) => {
+        const abort = () => reject(input.signal.reason);
+        input.signal.addEventListener("abort", abort, { once: true });
+        if (input.signal.aborted) abort();
+      });
+    },
+  };
+  try {
+    const executor = new PreviewExecutor({
+      definition: apizzaFsqPreviewDefinition,
+      catalog: apizzaFsqPreviewCatalog,
+      plugins: apizzaFsqPreviewPlugins,
+      readers: { files: blockingReader },
+      artifactStore: new FilesystemJsonArtifactStore(join(runtimeRoot, "objects")),
+      stateStore: state,
+      schemaValidators: apizzaFsqPreviewSchemaValidators,
+      hostPolicy: apizzaPreviewHostPolicy,
+      observedFreeDiskBytes: async () => 10_000_000_000,
+    });
+    const controller = new AbortController();
+    const running = executor.run({
+      partition: "US",
+      runId: "host-abort-test",
+      signal: controller.signal,
+    });
+    await readerEntered;
+    controller.abort(new Error("sensitive host reason must be normalized"));
+    await assert.rejects(running, /Preview run was aborted/);
+    const stored = state.getRun("host-abort-test");
+    assert.equal(stored?.status, "failed");
+    assert.equal(stored?.error, "Preview run was aborted");
+  } finally {
+    state.close();
+    await rm(runtimeRoot, { recursive: true, force: true });
+  }
+});
+
 test("normalizes the synthetic FSQ fixture with stable profile-scoped identities", () => {
   const document = {
     fixtureId: "test",

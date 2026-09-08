@@ -1,4 +1,5 @@
-const forbiddenPath = /(^|\/)(\.pipeline-state|artifacts|checkpoints|runtime|state|raw|input|output|backups|reports)(\/|$)/;
+const forbiddenPath = /(^|\/)(\.pipeline-state|artifacts|artifact-store|checkpoints|runtime|state|raw|input|output|backups|reports)(\/|$)/;
+const forbiddenRuntimeFile = /(^|\/)\.apizza-fsq-shadow\.lock$/;
 const forbiddenExtension = /\.(db|db-shm|db-wal|sqlite|sqlite3|sqlite-shm|sqlite-wal|sqlite3-shm|sqlite3-wal|ndjson|parquet|log|plist)$/i;
 const reservedHostConfigPath = /(^|\/)(?:[^/]*(?:private|host|deployment)[-_]?config[^/]*)\.(?:json|ya?ml|toml)$/i;
 const absoluteHostPath = new RegExp(
@@ -35,7 +36,11 @@ const postgresCredentialUri = new RegExp(
 
 export function pathViolations(path) {
   const errors = [];
-  if (forbiddenPath.test(path) || forbiddenExtension.test(path)) {
+  if (
+    forbiddenPath.test(path) ||
+    forbiddenRuntimeFile.test(path) ||
+    forbiddenExtension.test(path)
+  ) {
     errors.push("forbidden runtime/raw path or extension");
   }
   if (reservedHostConfigPath.test(path)) {

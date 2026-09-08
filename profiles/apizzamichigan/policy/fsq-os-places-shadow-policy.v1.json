@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 1,
+  "policyId": "shadow:apizza-fsq-os-places-flatfile-v1",
+  "profile": "apizzamichigan",
+  "adapter": "json-file-snapshot",
+  "resourceUri": "file-snapshot://pipeline-input/apizza-fsq-os-places-release-v1",
+  "dataset": "FSQ OS Places",
+  "approvalStatus": "pending_owner_approval",
+  "approvedMode": "read_only_shadow",
+  "ownerApprovedAt": null,
+  "expiresAt": null,
+  "license": "Apache-2.0",
+  "attribution": "Copyright 2024 Foursquare Labs, Inc.",
+  "termsRef": "https://docs.foursquare.com/data-products/docs/fsq-places-open-source",
+  "evidenceCapturedOn": "2026-09-07",
+  "projectionContract": {
+    "name": "apizza-fsq-release-rows",
+    "version": 1,
+    "digest": "sha256:4806be0c73df2c2e6b68279e1d8aa74d9c6bb7f71adb968515888e722d035ab8"
+  },
+  "containsPii": true,
+  "privacyReviewStatus": "pending_conservative_classification",
+  "redistribution": "forbidden",
+  "rawArtifactRetentionDays": 0
+}

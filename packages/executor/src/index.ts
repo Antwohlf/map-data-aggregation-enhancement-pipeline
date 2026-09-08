@@ -1102,6 +1102,13 @@ export interface PreviewExecutionReport {
   stages: PreviewStageReport[];
 }
 
+export interface PreviewRunInput {
+  partition: string;
+  runId?: string;
+  /** Host-owned cancellation. The stored error is deliberately normalized. */
+  signal?: AbortSignal;
+}
+
 export interface PreviewExecutorOptions {
   definition: PipelineDefinition;
   catalog: Readonly<Record<string, StagePluginManifest>>;
@@ -1361,11 +1368,14 @@ class OrderedArtifactExecutor {
     this.#assertReady();
   }
 
-  async run(input: { partition: string; runId?: string }): Promise<PreviewExecutionReport> {
+  async run(input: PreviewRunInput): Promise<PreviewExecutionReport> {
     if (this.#running) {
       throw new PreviewExecutionError(
         "This executor already has an active run; cross-process admission is not implemented",
       );
+    }
+    if (input.signal?.aborted) {
+      throw new PreviewExecutionError("Preview run was aborted before it started");
     }
     if (!input.partition.trim()) throw new PreviewExecutionError("Partition is required");
     if (
@@ -1406,6 +1416,9 @@ class OrderedArtifactExecutor {
       runStarted = true;
 
       for (const stage of this.#options.definition.stages) {
+        if (input.signal?.aborted) {
+          throw new PreviewExecutionError("Preview run was aborted");
+        }
         const manifest = this.#options.catalog[stage.uses]!;
         const plugin = this.#options.plugins[stage.uses]!;
         const stageInputs: Record<string, DatasetHandle> = {};
@@ -1444,6 +1457,11 @@ class OrderedArtifactExecutor {
           startedAt: now().toISOString(),
         });
         const controller = new AbortController();
+        const abortFromHost = () => {
+          controller.abort(new PreviewExecutionError("Preview run was aborted"));
+        };
+        input.signal?.addEventListener("abort", abortFromHost, { once: true });
+        if (input.signal?.aborted) abortFromHost();
         const broker = new PreviewStageBroker({
           definition: this.#options.definition,
           stage,
@@ -1535,6 +1553,7 @@ class OrderedArtifactExecutor {
           });
           throw stageError;
         } finally {
+          input.signal?.removeEventListener("abort", abortFromHost);
           registry.releaseConsumed(Object.values(invocationInputs));
         }
       }
@@ -1709,6 +1728,7 @@ class OrderedArtifactExecutor {
       throw new PreviewExecutionError(`Stage ${stage.id} has an invalid wall-time limit`);
     }
     let timeout: NodeJS.Timeout | undefined;
+    let abortListener: (() => void) | undefined;
     try {
       return await Promise.race([
         plugin.run({
@@ -1730,9 +1750,21 @@ class OrderedArtifactExecutor {
             reject(error);
           }, timeoutMs);
         }),
+        new Promise<never>((_resolve, reject) => {
+          abortListener = () => {
+            reject(
+              controller.signal.reason instanceof Error
+                ? controller.signal.reason
+                : new PreviewExecutionError(`Stage ${stage.id} was aborted`),
+            );
+          };
+          controller.signal.addEventListener("abort", abortListener, { once: true });
+          if (controller.signal.aborted) abortListener();
+        }),
       ]);
     } finally {
       if (timeout) clearTimeout(timeout);
+      if (abortListener) controller.signal.removeEventListener("abort", abortListener);
     }
   }
 
@@ -1834,7 +1866,7 @@ export class PreviewExecutor {
     });
   }
 
-  run(input: { partition: string; runId?: string }): Promise<PreviewExecutionReport> {
+  run(input: PreviewRunInput): Promise<PreviewExecutionReport> {
     return this.#executor.run(input);
   }
 }
@@ -1870,7 +1902,7 @@ export class ReadOnlyShadowExecutor {
     });
   }
 
-  run(input: { partition: string; runId?: string }): Promise<PreviewExecutionReport> {
+  run(input: PreviewRunInput): Promise<PreviewExecutionReport> {
     return this.#executor.run(input);
   }
 }
