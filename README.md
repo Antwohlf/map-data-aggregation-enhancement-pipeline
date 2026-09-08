@@ -132,6 +132,8 @@ The non-authorizing cross-repository contract join is documented in
 [the application boundary-lock guide](docs/APP_BOUNDARY_LOCKS.md).
 The APizza host composition and remaining activation gate are documented in
 [the FSQ shadow host guide](docs/APIZZA_FSQ_SHADOW_HOST.md).
+The pure application review-file adapter is documented in
+[the APizza review handoff guide](docs/APIZZA_REVIEW_HANDOFF.md).
 
 ## Dependency rule
 
