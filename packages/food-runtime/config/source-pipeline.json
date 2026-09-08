@@ -24,6 +24,12 @@
     "batch_per_run": 2,
     "states": ["MI", "NY"]
   },
+  "stageAdapters": {
+    "osm": { "acquisition": "food-source-osm-v1", "match": "food-source-legacy-match-v1", "review": "food-source-legacy-review-v1" },
+    "fsq_os_places": { "acquisition": "food-source-fsq-os-places-v1", "match": "food-source-legacy-match-v1", "review": "food-source-legacy-review-v1" },
+    "overture_places": { "acquisition": "food-source-overture-v1", "match": "food-source-legacy-match-v1", "review": "food-source-legacy-review-v1" },
+    "wikidata": { "acquisition": "food-source-wikidata-v1", "match": "food-source-legacy-match-v1", "review": "food-source-legacy-review-v1" }
+  },
   "sources": {
     "osm": { "enabled": true, "cadence_hours": 0.25, "regions_per_run": 1, "auto_create": true, "capabilities": ["discover", "match_existing", "enrich_evidence"], "failure_rotation_threshold": 1, "tile_step": 0.25, "refresh_after_hours": 720, "provenance_refresh_limit_per_run": 1000, "tiles_per_run": 4, "tiles_per_run_by_region": { "MI": 12, "NY": 8, "CA": 2, "TX": 8 }, "tile_timeout_ms": 180000, "tile_timeout_ms_by_region": { "NY": 180000, "TX": 180000 }, "overpass_request_timeout_ms": 90000, "overpass_request_timeout_ms_by_region": { "NY": 60000, "TX": 60000 }, "overpass_query_timeout_seconds": 90, "overpass_query_timeout_seconds_by_region": { "NY": 90, "TX": 90 } },
     "fsq_os_places": { "enabled": true, "cadence_hours": 72, "auto_create": true, "capabilities": ["discover", "match_existing", "enrich_evidence"], "max_files": 5 },

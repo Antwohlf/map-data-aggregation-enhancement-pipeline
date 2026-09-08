@@ -4,9 +4,49 @@ import { spawn } from 'node:child_process';
 import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, symlinkSync } from 'node:fs';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { executeTrustedHostStagesAsync } from '../executor/trusted-host.mjs';
 
 export const codeRoot = dirname(fileURLToPath(import.meta.url));
 const catalog = JSON.parse(readFileSync(join(codeRoot, 'config/production-tasks.json'), 'utf8'));
+const taskAdapters = Object.freeze({
+  source: { id: 'food.source-cycle', kind: 'source' },
+  publish: { id: 'food.guarded-publication', kind: 'output' },
+  classify: { id: 'food.classifier', kind: 'transform' },
+  scrape: { id: 'food.website-scraper', kind: 'source' },
+  'reconcile-classifier': { id: 'food.classifier-reconciliation', kind: 'maintenance' },
+  'feed-classifier': { id: 'food.classifier-feeder', kind: 'maintenance' },
+  'parse-menu': { id: 'food.menu-parser', kind: 'transform' },
+  backup: { id: 'food.backup', kind: 'maintenance' },
+});
+
+// Scheduled tasks are independently invoked graph nodes: publication does not
+// bypass its existing health/review gates or imply every source cycle is ready.
+export function executeProductionTask(plan, { profile, task }, run = supervisedCompletion) {
+  if (!Object.hasOwn(taskAdapters, task)) throw new Error('Unknown production task');
+  const adapter = taskAdapters[task];
+  return executeTrustedHostStagesAsync({
+    definition: {
+      schemaVersion: 1,
+      id: `${profile}-${task}`,
+      stages: [{ id: task, adapter: adapter.id, version: 1, kind: adapter.kind, dependsOn: [], config: {} }],
+    },
+    registry: [{ ...adapter, version: 1, run: () => run(plan) }],
+  });
+}
+
+function supervisedCompletion(plan) {
+  return new Promise((resolveCompletion, reject) => {
+    const child = superviseTask(plan);
+    child.once('error', reject);
+    child.once('exit', (code, signal) => {
+      if (code !== 0 || signal || process.exitCode) reject(Object.assign(
+        new Error(`Production adapter failed (exit=${code}, signal=${signal || 'none'})`),
+        { exitCode: process.exitCode || code || 1 },
+      ));
+      else resolveCompletion({ exitCode: 0 });
+    });
+  });
+}
 
 function contained(parent, child) {
   const path = relative(parent, child);
@@ -123,7 +163,7 @@ async function main(argv) {
   // A separate deliberate flag is required: printing a plan cannot start writers.
   // Exporters spawn grandchildren. Forward shutdown to the process group, not
   // just the intermediate Node process, so a stopped job cannot leave writers.
-  superviseTask(plan);
+  await executeProductionTask(plan, options);
 }
 
 export function superviseTask(plan, { graceMs = 5000 } = {}) {
@@ -161,5 +201,5 @@ export function superviseTask(plan, { graceMs = 5000 } = {}) {
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  main(process.argv.slice(2)).catch(error => { console.error(error.message); process.exitCode = 1; });
+  main(process.argv.slice(2)).catch(error => { console.error(error.message); process.exitCode = error.exitCode || 1; });
 }

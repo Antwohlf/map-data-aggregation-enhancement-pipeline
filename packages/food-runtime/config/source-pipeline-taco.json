@@ -22,6 +22,10 @@
     "batch_per_run": 1,
     "states": ["MI", "NY"]
   },
+  "stageAdapters": {
+    "osm": { "acquisition": "food-source-osm-v1", "match": "food-source-legacy-match-v1", "review": "food-source-legacy-review-v1" },
+    "fsq_os_places": { "acquisition": "food-source-fsq-os-places-v1", "match": "food-source-legacy-match-v1", "review": "food-source-legacy-review-v1" }
+  },
   "sources": {
     "osm": {
       "enabled": true,
