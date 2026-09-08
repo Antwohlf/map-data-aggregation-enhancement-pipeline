@@ -9,6 +9,35 @@ already runs through the artifact executor. The executor's read-only shadow
 gates remain unchanged. This runtime preserves the established database and
 human-review contracts while individual steps can subsequently be replaced.
 
+## Interchangeable trusted-host stages
+
+`@map-pipeline/executor/trusted-host` is the production orchestration path for
+trusted host adapters. It validates a complete versioned stage graph before
+starting any stage, orders dependencies, supplies only predecessor outputs,
+and stops downstream execution on failure. The injected registry owns code;
+JSON definitions do not contain executable commands. Source, transform,
+review, output, and maintenance are distinct stage kinds.
+
+The food source runner uses configured acquisition, matching, and review nodes
+for OSM, FSQ, Overture, and Wikidata. These nodes retain their existing private
+files and review contracts. An adapter can be replaced in the registry and
+selected by configuration without changing the orchestration loop. Product
+configuration keeps Pizza and Taco identities and source policies separate.
+
+This is **trusted host execution**, not a sandbox or broker capability system.
+Adapters retain the host process's permissions. The artifact-based preview
+executor and its admission restrictions are unchanged; its inert product
+declarations do not authorize production writes. There is no automatic retry
+or replay of side-effecting stages. Existing source checkpoints, shared locks,
+review decisions, and guarded publisher checks remain authoritative.
+
+Scheduled tasks also run as registered trusted-host nodes: publication is an
+output adapter, classification/menu parsing are transforms, and housekeeping
+is maintenance. Their implementations remain the proven compatibility
+entrypoints, with the existing process-group shutdown supervision. ATP and
+website draining inside a source cycle remain composite compatibility work;
+this bridge does not claim broker-secured artifact-executor parity.
+
 ## Product profiles and shared workers
 
 `config/production-tasks.json` selects the product-specific source config,

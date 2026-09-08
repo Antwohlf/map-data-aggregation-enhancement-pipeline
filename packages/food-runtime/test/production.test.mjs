@@ -5,7 +5,20 @@ import { join } from 'node:path';
 import test from 'node:test';
 import { spawn, spawnSync } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
-import { codeRoot, planTask, prepareWorkspace, validateWorkspace } from '../production.mjs';
+import { codeRoot, executeProductionTask, planTask, prepareWorkspace, validateWorkspace } from '../production.mjs';
+
+test('product publication runs as an output adapter without changing its scoped plan', async () => {
+  for (const profile of ['apizzamichigan', 'tacoboutmichigan']) {
+    const options = { profile, task: 'publish', workspace: tmpdir() };
+    const plan = planTask(options, {});
+    const result = await executeProductionTask(plan, options, async received => {
+      assert.equal(received, plan);
+      return { exitCode: 0 };
+    });
+    assert.deepEqual(result.outputs.publish, { exitCode: 0 });
+    await assert.rejects(executeProductionTask(plan, options, async () => { throw new Error('guard refused'); }), /guard refused/);
+  }
+});
 
 test('product profiles pin entity, source configuration, and distinct checkpoints', () => {
   const workspace = join(tmpdir(), 'synthetic-food-workspace');
@@ -25,6 +38,13 @@ test('product profiles pin entity, source configuration, and distinct checkpoint
   assert.equal(pizza.cwd, workspace);
   assert.ok(pizza.args[0].startsWith(codeRoot));
   assert.notEqual(pizza.env, env);
+});
+
+test('registered process adapter preserves a distinctive child failure code', () => {
+  const moduleUrl = pathToFileURL(join(codeRoot, 'production.mjs')).href;
+  const harness = `import {executeProductionTask} from ${JSON.stringify(moduleUrl)}; executeProductionTask({command:process.execPath,args:['-e','process.exit(7)'],cwd:process.cwd(),env:process.env},{profile:'apizzamichigan',task:'publish'}).catch(error=>{process.exitCode=error.exitCode||1})`;
+  const child = spawnSync(process.execPath, ['--input-type=module', '-e', harness], { encoding: 'utf8' });
+  assert.equal(child.status, 7, child.stderr);
 });
 
 test('unknown tasks/profiles and product-scoped shared workers are rejected', () => {

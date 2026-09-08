@@ -5,6 +5,8 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync, rmSync } from 'node
 import { basename, dirname, resolve } from 'node:path';
 import { selectSourcePipelineRegions } from '../lib/source-pipeline-scope.mjs';
 import { sourceAutoLinkArguments } from '../lib/source-auto-link-policy.mjs';
+import { executeTrustedHostStages } from '@map-pipeline/executor/trusted-host';
+import { createFoodSourceStages } from '../lib/food-source-stages.mjs';
 import { summarizeOsmManifest } from '../lib/osm-refresh-summary.mjs';
 import {
   assertSourcePipelineEntity,
@@ -154,7 +156,7 @@ function splitBbox(bbox) {
   }
   return tiles;
 }
-function runAdapter(source, region, output, config, state) {
+function runSourceAcquisition(source, region, output, config, state) {
   const [south, west, north, east] = region.bbox;
   let osmProvenanceRefresh = null;
   if (source === 'osm') {
@@ -192,50 +194,44 @@ function runAdapter(source, region, output, config, state) {
   } else if (source === 'fsq_os_places') {
     run(resolve(ROOT, 'scripts/.fsq-venv/bin/python'), ['scripts/ops/export-fsq-hf-parquet-sample.py', '--query', '', '--country', 'US', '--max-files', String(config.sources.fsq_os_places.max_files), '--limit', String(config.limits.candidate_rows_per_source), '--output', output], { timeout: 1800000 });
   } else throw new Error(`No adapter for ${source}`);
-  const paths = stampReport(source, region.key, config.entity, output);
-  run(NODE, sourceInputSampleReportArguments({
-    source,
-    input: paths.input,
-    entity: config.entity,
-    scopeConfig: CONFIG_PATH,
-    limit: config.limits.candidate_rows_per_source,
-    reviewOutput: paths.report,
-    apply: config.apply,
-  }), { timeout: 600000 });
-  if (config.apply) {
-    if (source === 'osm') {
-      // Refresh exact existing OSM evidence independently of the review queue.
-      // This keeps freshness meaningful for already-linked places without
-      // creating places or promoting identity fields.
-      osmProvenanceRefresh = parseJsonOutput(run(NODE, [
-        'scripts/ops/refresh-osm-place-sources.mjs',
-        '--input', paths.input,
-        '--entity', config.entity,
-        '--states', (config.operational_regions || []).join(','),
-        '--max-updates', String(config.sources.osm.provenance_refresh_limit_per_run || 1000),
-        '--apply',
-        '--json',
-      ], { timeout: 180000 }));
-    }
-    run(NODE, ['scripts/ops/import-source-review-queue.mjs', '--input-files', paths.report, '--entity', config.entity, '--apply'], { timeout: 180000 });
-    // Only sources with a source-specific identity contract may auto-link.
-    // FSQ and Overture remain review candidates until their identifiers are
-    // explicitly validated; they must not inherit the official-chain rule.
-    const autoLinkArgs = sourceAutoLinkArguments(source);
-    if (autoLinkArgs.length) {
-      run(NODE, [
-        'scripts/ops/auto-link-source-review-queue.mjs',
-        '--entity', config.entity,
-        '--source', source,
-        ...autoLinkArgs,
-        '--max-distance-m', '100',
-        '--limit', '100',
-        ...(config.apply ? ['--apply'] : []),
-      ], { timeout: 180000 });
-    }
-  }
-  return { ...paths, osmProvenanceRefresh };
+  return { input: output, osmProvenanceRefresh };
 }
+
+function runAdapter(source, region, output, config, state) {
+  const stages = createFoodSourceStages({
+    source,
+    adapterIds: config.stageAdapters?.[source],
+    acquire: () => runSourceAcquisition(source, region, output, config, state),
+    match: (_, inputs) => {
+      const paths = stampReport(source, region.key, config.entity, inputs.acquire.input);
+      run(NODE, sourceInputSampleReportArguments({
+        source, input: paths.input, entity: config.entity, scopeConfig: CONFIG_PATH,
+        limit: config.limits.candidate_rows_per_source, reviewOutput: paths.report, apply: config.apply,
+      }), { timeout: 600000 });
+      return paths;
+    },
+    review: (_, inputs) => {
+      const paths = inputs.match;
+      let osmProvenanceRefresh = null;
+      if (config.apply) {
+        if (source === 'osm') {
+          osmProvenanceRefresh = parseJsonOutput(run(NODE, [
+            'scripts/ops/refresh-osm-place-sources.mjs', '--input', paths.input, '--entity', config.entity,
+            '--states', (config.operational_regions || []).join(','),
+            '--max-updates', String(config.sources.osm.provenance_refresh_limit_per_run || 1000), '--apply', '--json',
+          ], { timeout: 180000 }));
+        }
+        run(NODE, ['scripts/ops/import-source-review-queue.mjs', '--input-files', paths.report, '--entity', config.entity, '--apply'], { timeout: 180000 });
+        const autoLinkArgs = sourceAutoLinkArguments(source);
+        if (autoLinkArgs.length) run(NODE, ['scripts/ops/auto-link-source-review-queue.mjs', '--entity', config.entity, '--source', source, ...autoLinkArgs, '--max-distance-m', '100', '--limit', '100', '--apply'], { timeout: 180000 });
+      }
+      return { ...paths, osmProvenanceRefresh };
+    },
+  });
+  const result = executeTrustedHostStages({ definition: stages.definition, registry: stages.registry, context: { source, entity: config.entity, region: region.key, apply: config.apply } });
+  return result.outputs.review;
+}
+
 function runAtp(region, config, state, apply, maxSpiders) {
   const manifest = loadJson(resolve(ROOT, 'config/atp-pizza-spiders.json'), { spiders: [] });
   const enabled = manifest.spiders.filter(row => row.import_enabled && row.status === 'active').map(row => row.spider);
