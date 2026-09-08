@@ -69,7 +69,7 @@ The host manifest is an owner-only JSON file with this exact shape:
     "rootPath": "<absolute-normalized-private-input-directory>",
     "relativePath": "fsq-release.json",
     "expectedContentDigest": "sha256:<exact-file-byte-digest>",
-    "childIds": ["release:<exact-upstream-release-identity>"],
+    "childIds": ["host-snapshot:sha256:<original-file-digest>"],
     "maxRecords": 5000
   },
   "postgres": {
