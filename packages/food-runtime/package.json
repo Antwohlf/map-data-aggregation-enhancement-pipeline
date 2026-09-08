@@ -8,6 +8,7 @@
     "test": "node --test 'test/*.test.mjs' 'scripts/lib/*.test.mjs'"
   },
   "dependencies": {
+    "@map-pipeline/executor": "*",
     "@supabase/supabase-js": "2.48.1",
     "better-sqlite3": "12.11.1",
     "cheerio": "1.2.0",
