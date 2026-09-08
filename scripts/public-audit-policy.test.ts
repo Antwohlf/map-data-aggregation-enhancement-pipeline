@@ -28,3 +28,9 @@ test("public audit permits repository-relative placeholders", () => {
   assert.deepEqual(pathViolations("examples/synthetic-pipeline.json"), []);
   assert.deepEqual(textViolations("postgres-view://pipeline-input/example-v1"), []);
 });
+
+test("dotenv local filename exception does not permit machine hostnames", () => {
+  assert.deepEqual(textViolations("join(root, '.env.local')"), []);
+  assert.ok(textViolations(['machine', 'local'].join('.')).length);
+  assert.ok(textViolations(['machine.env', 'local'].join('.')).length);
+});

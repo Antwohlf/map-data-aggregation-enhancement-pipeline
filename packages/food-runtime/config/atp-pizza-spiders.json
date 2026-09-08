@@ -1,0 +1,39 @@
+{
+  "entity": "pizza",
+  "source": "all_the_places",
+  "updated_at": "2026-07-17",
+  "notes": [
+    "Only import entries with import_enabled=true.",
+    "Missing and false-positive entries document discovery results and should not be passed to import-atp-spiders."
+  ],
+  "spiders": [
+    { "spider": "little_caesars_us", "group": "original_chain", "status": "active", "import_enabled": true },
+    { "spider": "pizza_hut_us", "group": "original_chain", "status": "active", "import_enabled": true },
+    { "spider": "dominos_pizza_us", "group": "original_chain", "status": "active", "import_enabled": true },
+    { "spider": "papa_johns", "group": "original_chain", "status": "active", "import_enabled": true },
+    { "spider": "marcos", "group": "original_chain", "status": "active", "import_enabled": true },
+    { "spider": "papa_murphys", "group": "original_chain", "status": "active", "import_enabled": true },
+    { "spider": "mod_pizza", "group": "original_chain", "status": "active", "import_enabled": true },
+    { "spider": "california_pizza_kitchen", "group": "original_chain", "status": "active", "import_enabled": true },
+    { "spider": "foxs_pizza", "group": "original_chain", "status": "active_with_errors", "import_enabled": true, "note": "ATP run may report spider errors; inspect preflight warning before applying." },
+    { "spider": "monicals_pizza_us", "group": "original_chain", "status": "active", "import_enabled": true },
+    { "spider": "mr_gattis_pizza_us", "group": "original_chain", "status": "active", "import_enabled": true },
+    { "spider": "and_pizza", "group": "original_chain", "status": "active", "import_enabled": true },
+    { "spider": "grimaldis_pizzeria", "group": "original_chain", "status": "active", "import_enabled": true },
+    { "spider": "round_table_pizza", "group": "regional_chain", "status": "active", "import_enabled": true },
+    { "spider": "simple_simons_pizza_us", "group": "regional_chain", "status": "active", "import_enabled": true },
+    { "spider": "pizza_ranch_us", "group": "regional_chain", "status": "active", "import_enabled": true },
+    { "spider": "vocelli_pizza_us", "group": "regional_chain", "status": "active", "import_enabled": true },
+    { "spider": "sals_pizza_us", "group": "regional_chain", "status": "active", "import_enabled": true },
+    { "spider": "flippin_pizza_us", "group": "regional_chain", "status": "active", "import_enabled": true },
+    { "spider": "mountain_mikes_us", "group": "regional_chain", "status": "active", "import_enabled": true },
+    { "spider": "bc_pizza", "group": "regional_chain", "status": "active_with_errors", "import_enabled": true, "brand": "BC Pizza", "note": "ATP run 2026-07-11-13-32-25 had 35 features and 3 spider errors. Applied after inspection: 10 accepted matches, 1 ambiguous row, and 24 likely-new rows." },
+    { "spider": "larosas", "group": "regional_chain", "status": "active", "import_enabled": true, "brand": "LaRosa's", "note": "Applied review queue only: 61 features, 0 accepted matches, 11 ambiguous rows, and 50 likely-new rows." },
+    { "spider": "hungry_howies", "group": "gap", "status": "missing_from_atp_stats", "import_enabled": false, "brand": "Hungry Howie's", "note": "ATP run 2026-07-11-13-32-25 had no howie/howies matches; hungry matches were unrelated non-US brands." },
+    { "spider": "jet", "group": "gap", "status": "false_positive_non_pizza", "import_enabled": false, "brand": "Jet's Pizza", "note": "ATP run 2026-07-11-13-32-25 only matched jet_de_at and jet_gb fuel/convenience spiders, not Jet's Pizza." },
+    { "spider": "blaze_pizza", "group": "gap", "status": "empty_in_atp_stats", "import_enabled": false, "brand": "Blaze Pizza", "note": "ATP run 2026-07-11-13-32-25 had a spider row but zero features." },
+    { "spider": "lou_malnatis_pizzeria_us", "group": "gap", "status": "empty_in_atp_stats", "import_enabled": false, "brand": "Lou Malnati's", "note": "ATP run 2026-07-11-13-32-25 had a spider row but zero features." },
+    { "spider": "godfathers_pizza", "group": "gap", "status": "empty_in_atp_stats", "import_enabled": false, "brand": "Godfather's Pizza", "note": "ATP run 2026-07-11-13-32-25 had a spider row but zero features." },
+    { "spider": "old_chicago_us", "group": "gap", "status": "empty_in_atp_stats", "import_enabled": false, "brand": "Old Chicago", "note": "ATP run 2026-07-11-13-32-25 had a spider row but zero features." }
+  ]
+}

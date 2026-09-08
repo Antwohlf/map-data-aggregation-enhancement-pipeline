@@ -1,0 +1,18 @@
+{
+  "name": "@map-pipeline/food-runtime",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "license": "Apache-2.0",
+  "scripts": {
+    "test": "node --test 'test/*.test.mjs' 'scripts/lib/*.test.mjs'"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "2.48.1",
+    "better-sqlite3": "12.11.1",
+    "cheerio": "1.2.0",
+    "dotenv": "16.6.1",
+    "pg": "8.22.0",
+    "playwright-core": "1.61.1"
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "entity": "pizza",
+  "sources": {
+    "osm": { "priority": 100, "freshness_days": 30, "minimum_match_confidence": 0.9, "role": "discovery_and_factual_evidence" },
+    "fsq_os_places": { "priority": 80, "freshness_days": 180, "minimum_match_confidence": 0.9, "role": "discovery_and_factual_evidence" },
+    "all_the_places": { "priority": 70, "freshness_days": 90, "minimum_match_confidence": 0.9, "role": "discovery_and_factual_evidence" },
+    "overture_places": { "priority": 60, "freshness_days": 365, "minimum_match_confidence": 0.85, "role": "identity_and_factual_evidence" },
+    "wikidata": { "priority": 50, "freshness_days": 365, "minimum_match_confidence": 0.85, "role": "identity_and_factual_evidence" },
+    "official_website": { "priority": 110, "freshness_days": 30, "minimum_match_confidence": 0.95, "role": "first_party_factual_evidence" }
+  },
+  "promotion": {
+    "contact_fields_require_fresh_days": 90,
+    "classifier_fields_are_not_source_promoted": true,
+    "lower_priority_sources_do_not_overwrite_newer_higher_priority_evidence": true
+  }
+}

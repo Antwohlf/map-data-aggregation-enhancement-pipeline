@@ -28,7 +28,7 @@
   ],
   "scripts": {
     "check": "tsc --noEmit",
-    "test": "tsx --test 'packages/**/*.test.ts' 'profiles/**/*.test.ts' 'scripts/**/*.test.ts'",
+    "test": "tsx --test 'packages/**/*.test.ts' 'profiles/**/*.test.ts' 'scripts/**/*.test.ts' && npm run test --workspace @map-pipeline/food-runtime",
     "test:postgres": "tsx --test packages/adapter-postgres/src/integration.test.ts",
     "test:postgres-provision": "tsx --test packages/adapter-postgres/src/provision.integration.test.ts",
     "validate:example": "tsx packages/cli/src/main.ts validate --definition examples/synthetic-pipeline.json --catalog examples/plugin-catalog.json",

@@ -1,0 +1,65 @@
+{
+  "entity": "taco",
+  "region_scope": "US",
+  "operational_regions": ["MI", "NY"],
+  "regions": [
+    { "key": "MI", "bbox": [41.6, -90.5, 48.4, -82.1] },
+    { "key": "NY", "bbox": [40.4, -79.8, 45.1, -71.7], "region_codes": ["NY"] }
+  ],
+  "limits": {
+    "heavy_work_units_per_run": 2,
+    "new_places_per_run": 25,
+    "new_places_per_day": 100,
+    "website_jobs_per_run": 25,
+    "contact_promotions_per_run": 25,
+    "classify_queue_jobs_per_region_per_run": 25,
+    "classify_partial_retry_jobs_per_region_per_run": 0,
+    "candidate_rows_per_source": 2500
+  },
+  "classifier_retry_feeder": {
+    "enabled": false,
+    "high_water": 1,
+    "batch_per_run": 1,
+    "states": ["MI", "NY"]
+  },
+  "sources": {
+    "osm": {
+      "enabled": true,
+      "cadence_hours": 1,
+      "regions_per_run": 1,
+      "auto_create": true,
+      "capabilities": ["discover", "match_existing", "enrich_evidence"],
+      "failure_rotation_threshold": 1,
+      "tile_step": 0.25,
+      "refresh_after_hours": 720,
+      "retry_failed": true,
+      "provenance_refresh_limit_per_run": 500,
+      "tiles_per_run": 2,
+      "tile_timeout_ms": 180000,
+      "overpass_request_timeout_ms": 90000,
+      "overpass_query_timeout_seconds": 90
+    },
+    "fsq_os_places": {
+      "enabled": true,
+      "cadence_hours": 168,
+      "auto_create": true,
+      "capabilities": ["discover", "match_existing", "enrich_evidence"],
+      "max_files": 1
+    },
+    "overture_places": {
+      "enabled": true,
+      "cadence_hours": 168,
+      "regions_per_run": 1,
+      "auto_create": true,
+      "capabilities": ["discover", "match_existing", "enrich_evidence"],
+      "tile_step": 1.0,
+      "tiles_per_run": 1
+    },
+    "official_website": {
+      "enabled": true,
+      "cadence_hours": 24,
+      "auto_create": false,
+      "capabilities": ["match_existing", "enrich_evidence", "promote_contact"]
+    }
+  }
+}
