@@ -6,6 +6,8 @@ import { pathViolations, textViolations } from "./public-audit-policy.mjs";
 test("public audit rejects concrete host configuration artifacts", () => {
   assert.ok(pathViolations("config/apizza-host-config.json").length);
   assert.ok(pathViolations("ops/LaunchAgents/com.example.pipeline.plist").length);
+  assert.ok(pathViolations("shadow-run/artifact-store/objects/example.json").length);
+  assert.ok(pathViolations("shadow-run/.apizza-fsq-shadow.lock").length);
   assert.deepEqual(pathViolations("examples/host-config.template.json"), [
     "reserved private host-configuration filename",
   ]);

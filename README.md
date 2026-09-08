@@ -43,7 +43,10 @@ their source terms, target contracts, and deployment manifests are approved.
   goldens and no product-write authority.
 - A five-stage APizza FSQ shadow definition: ephemeral FSQ projection,
   normalization, canonical Postgres snapshot, matching, and a receipt-backed
-  verifier. Its real-data host runner and policy gate remain unimplemented.
+  verifier.
+- A fail-closed APizza host runner that composes that definition from an
+  owner-only manifest, checked-in source policy and DB contract, dedicated
+  read-only DSN, private projection, cross-process lock, and host cancellation.
 
 The repository executes local synthetic previews. It also contains a distinct
 non-authoritative shadow runtime that can join one exact host-registered,
@@ -95,8 +98,9 @@ artifact writes. The separately constructed read-only shadow runtime also
 requires an exact host-owned source grant and matching snapshot attestation; it
 still permits no non-preview writes. Both runtimes run plugins in-process with
 ambient Node authority and must use trusted plugins; this milestone is not a
-security sandbox. Apply execution, shared host-wide admission, out-of-process
-supervision, external source acquisition, worker queues, writable product
+security sandbox. The checked-in FSQ source policy remains pending, so the host
+runner cannot start a real shadow run yet. Apply execution, shared host-wide
+admission, out-of-process supervision, external source acquisition, worker queues, writable product
 database adapters, and publication sinks remain future milestones.
 
 This repository has no release tags or published packages. Until the first
@@ -126,6 +130,8 @@ The PostgreSQL boundary is documented in
 [the snapshot-adapter guide](docs/POSTGRES_SNAPSHOT_ADAPTER.md).
 The non-authorizing cross-repository contract join is documented in
 [the application boundary-lock guide](docs/APP_BOUNDARY_LOCKS.md).
+The APizza host composition and remaining activation gate are documented in
+[the FSQ shadow host guide](docs/APIZZA_FSQ_SHADOW_HOST.md).
 
 ## Dependency rule
 

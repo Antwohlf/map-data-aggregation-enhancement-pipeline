@@ -33,6 +33,7 @@
     "test:postgres-provision": "tsx --test packages/adapter-postgres/src/provision.integration.test.ts",
     "validate:example": "tsx packages/cli/src/main.ts validate --definition examples/synthetic-pipeline.json --catalog examples/plugin-catalog.json",
     "preview:apizza-fsq": "tsx profiles/apizzamichigan/src/run-fsq-preview.ts",
+    "preview:apizza-fsq-shadow": "tsx profiles/apizzamichigan/src/run-fsq-shadow.ts",
     "digest:json": "tsx scripts/digest-json.ts",
     "verify:app-boundaries": "tsx scripts/verify-app-boundary-locks.ts",
     "audit:public": "node scripts/audit-public-files.mjs"

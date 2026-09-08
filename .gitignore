@@ -10,6 +10,7 @@ coverage/
 .map-pipeline/
 .pipeline-state/
 artifacts/
+artifact-store/
 checkpoints/
 runtime/
 state/
@@ -32,6 +33,7 @@ reports/
 *.ndjson
 *.parquet
 *.log
+.apizza-fsq-shadow.lock
 
 # Concrete host composition and scheduler files must never enter the public repo.
 *.private-config.json

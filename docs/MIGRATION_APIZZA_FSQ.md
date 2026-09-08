@@ -1,6 +1,6 @@
 # APizzaMichigan FSQ migration slice
 
-Status: complete read-only shadow composition on synthetic host inputs; no
+Status: complete read-only shadow composition and fail-closed host runner; no
 real-data policy approval or cutover authority.
 
 This implementation formally selects FSQ as the first executable
@@ -76,9 +76,14 @@ additions do not grant source authority or publication permission.
   while the terminal report contains only counts and digests. Tests exercise
   active and closed rows, reject unknown/private fields before persistence, and
   prove the definition contains no product, evidence, review, or state writer.
-- No real-data host runner is shipped yet. Credential isolation, policy
-  attestation, privacy classification, and measured iMac resource bounds are
-  explicit activation gates.
+- A real-data host runner now validates an owner-only manifest and projection,
+  binds the checked-in source policy and database contract, obtains only a
+  dedicated read-only DSN from the host environment, uses a cross-process lock,
+  supports host cancellation, and emits no host paths or source rows.
+- The checked-in source policy remains pending. Credential provisioning,
+  release provenance, owner policy approval, restricted-projection privacy
+  approval, and measured iMac resource bounds remain explicit activation
+  gates. See `docs/APIZZA_FSQ_SHADOW_HOST.md`.
 
 ## Missing parity gates
 
@@ -96,8 +101,9 @@ Before any shadow run, this slice still needs:
    projection with documented privacy controls, or replacement with a true
    streaming acquisition adapter.
 3. Restart, fault, artifact-backup, and restore tests required by Phase 1.
-4. Approved source terms and an exact release/NOTICE record. Synthetic approval
-   is not FSQ source approval.
+4. Owner approval of the checked-in FSQ OS Places license/NOTICE evidence,
+   exact release identity, and restricted-projection privacy classification.
+   Synthetic approval is not FSQ source approval.
 5. Provisioning and multiple complete shadow runs with every product writer
    absent.
 
