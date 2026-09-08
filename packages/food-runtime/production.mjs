@@ -77,6 +77,9 @@ export function planTask({ profile, task, workspace }, environment = process.env
     env.SOURCE_PIPELINE_STATE = join(workspace, `scripts/.${stem}-state.json`);
     env.SOURCE_PIPELINE_LAST_REPORT = join(workspace, `scripts/.${stem}-last-report.json`);
     env.SOURCE_PIPELINE_LAST_DRY_RUN = join(workspace, `scripts/.${stem}-last-dry-run.json`);
+    env.APIZZA_SYNC_CHECKPOINT = join(workspace, `scripts/.${selected.publishStateStem}-sync-checkpoint.json`);
+    env.APIZZA_SYNC_STATUS_FILE = join(workspace, `scripts/.${selected.publishStateStem}-sync-status.json`);
+    env.APIZZA_SYNC_RECONCILE_CHECKPOINT = join(workspace, `scripts/.${selected.publishStateStem}-reconcile-checkpoint.json`);
   } else {
     // Existing shared queue workers claim both products, without a product override.
     delete env.APIZZA_SYNC_ENTITY;
@@ -111,20 +114,50 @@ async function main(argv) {
     console.log(JSON.stringify({ profile: options.profile, task: options.task, command: plan.command, args: plan.args, cwd: plan.cwd, execute: false }));
     return;
   }
+  if (existsSync(join(workspace, 'STAGING-NOT-ACTIVE.json'))) {
+    throw new Error('Workspace is staged only; complete the coordinated cutover before execution');
+  }
+  if (!existsSync(plan.env.QUEUE_DB_PATH)) {
+    throw new Error('Existing food queue is required; refusing to create an empty production queue');
+  }
   // A separate deliberate flag is required: printing a plan cannot start writers.
   // Exporters spawn grandchildren. Forward shutdown to the process group, not
   // just the intermediate Node process, so a stopped job cannot leave writers.
+  superviseTask(plan);
+}
+
+export function superviseTask(plan, { graceMs = 5000 } = {}) {
   const grouped = process.platform !== 'win32';
   const child = spawn(plan.command, plan.args, { cwd: plan.cwd, env: plan.env, stdio: 'inherit', detached: grouped });
-  for (const signal of ['SIGTERM', 'SIGINT']) process.on(signal, () => {
+  let stopping = false;
+  const send = signal => {
     if (!child.pid) return;
-    try {
-      if (grouped) process.kill(-child.pid, signal);
-      else child.kill(signal);
-    } catch (error) { if (error.code !== 'ESRCH') throw error; }
-  });
+    try { if (grouped) process.kill(-child.pid, signal); else child.kill(signal); }
+    catch (error) { if (error.code !== 'ESRCH') throw error; }
+  };
+  const stop = signal => {
+    if (stopping) return;
+    stopping = true;
+    process.exitCode = 1;
+    send(signal);
+    // Keep this timer alive even if the direct child exits first: grandchildren
+    // in its process group may still be running. Escalate before launchd does.
+    setTimeout(() => { send('SIGKILL'); cleanup(); }, graceMs);
+  };
+  const terminate = () => stop('SIGTERM');
+  const interrupt = () => stop('SIGINT');
+  const cleanup = () => {
+    process.removeListener('SIGTERM', terminate);
+    process.removeListener('SIGINT', interrupt);
+  };
+  process.on('SIGTERM', terminate);
+  process.on('SIGINT', interrupt);
   child.on('error', error => { console.error(error.message); process.exitCode = 1; });
-  child.on('exit', (code, signal) => { process.exitCode = code ?? (signal ? 1 : 0); });
+  child.on('exit', (code, signal) => {
+    process.exitCode = stopping ? 1 : code ?? (signal ? 1 : 0);
+    if (!stopping) cleanup();
+  });
+  return child;
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

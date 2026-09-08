@@ -210,7 +210,7 @@ async function inspectBulkRpc(supabase, configured, lifecycleRemoteSchema, rpc) 
   if (error.code === 'PGRST202' || /could not find the function/i.test(error.message || '')) {
     result.state = 'migration_missing';
     result.detail = lifecycleRemoteSchema?.state === 'ready'
-      ? `Supabase exposes the lifecycle columns but not ${rpc}(jsonb); apply the entity's bulk-sync migration (for pizza, scripts/enrichment/supabase-bulk-sync-rpc-migration.sql) before enabling low-I/O bulk sync.`
+      ? `Supabase exposes the lifecycle columns but not ${rpc}(jsonb); apply the entity's app-owned bulk-sync migration before enabling low-I/O bulk sync.`
       : `Supabase does not expose ${rpc}(jsonb); apply the entity's production migration before enabling bulk sync.`;
   } else {
     result.state = 'unavailable';

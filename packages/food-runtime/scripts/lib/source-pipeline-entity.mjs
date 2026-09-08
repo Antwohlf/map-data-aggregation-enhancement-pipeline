@@ -38,6 +38,14 @@ export function sourcePipelineOsmOutputPath(root, regionKey, entity) {
   return resolve(root, 'reports/osm', `${String(regionKey).toLowerCase()}-${supportedEntity}.json`);
 }
 
+export function sourcePipelineReviewOutputPath(root, source, regionKey, entity) {
+  const supportedEntity = assertSourcePipelineEntity(entity);
+  const fileName = supportedEntity === 'pizza'
+    ? `${source}-${regionKey}-review.json`
+    : `${source}-${regionKey}-${supportedEntity}-review.json`;
+  return resolve(root, 'reports/source-review', fileName);
+}
+
 export function isSourceCandidateForEntity(candidate, entity) {
   const supportedEntity = assertSourcePipelineEntity(entity);
   const categories = Array.isArray(candidate?.categories)

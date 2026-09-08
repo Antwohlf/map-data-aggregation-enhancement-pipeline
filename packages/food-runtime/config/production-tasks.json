@@ -4,12 +4,14 @@
     "apizzamichigan": {
       "entity": "pizza",
       "sourceConfig": "config/source-pipeline.json",
+      "publishStateStem": "supabase",
       "sourceArgs": ["--apply", "--regions", "MI,NY", "--max-work-units", "6", "--max-new-places", "50"],
       "publishArgs": []
     },
     "tacoboutmichigan": {
       "entity": "taco",
       "sourceConfig": "config/source-pipeline-taco.json",
+      "publishStateStem": "taco-supabase",
       "sourceArgs": ["--apply", "--regions", "MI,NY", "--max-work-units", "2", "--max-new-places", "25"],
       "publishArgs": ["--entity", "taco", "--bulk-rpc", "--checkpoint", "scripts/.taco-supabase-sync-checkpoint.json"]
     }

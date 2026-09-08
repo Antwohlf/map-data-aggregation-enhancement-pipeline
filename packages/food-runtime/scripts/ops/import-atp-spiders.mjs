@@ -217,7 +217,7 @@ async function preflightSpiders(args) {
     const parts = [];
     if (missing.length) parts.push(`missing spiders: ${missing.join(', ')}`);
     if (empty.length) parts.push(`empty spiders: ${empty.join(', ')}`);
-    throw new Error(`ATP preflight failed (${parts.join('; ')}). Use scripts/ops/discover-atp-spiders.mjs to find current names.`);
+    throw new Error(`ATP preflight failed (${parts.join('; ')}). Verify provider spider availability before updating config/atp-pizza-spiders.json.`);
   }
 }
 

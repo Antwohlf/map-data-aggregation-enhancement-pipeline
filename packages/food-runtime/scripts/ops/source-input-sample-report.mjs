@@ -3,7 +3,7 @@
  * Coverage report and controlled place_sources importer for approved samples.
  *
  * This is the generic version of the FSQ sample workflow. It normalizes small
- * source exports, filters pizza-ish records, and compares them to the current
+ * source exports, filters entity-relevant records, and compares them to the current
  * canonical place table. It writes only when --apply is passed, and only to
  * place_sources for matched existing canonical rows.
  */

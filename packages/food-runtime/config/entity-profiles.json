@@ -25,7 +25,7 @@
       "display_name": "Taco",
       "canonical_table": "taco_places",
       "primary_classification_field": "style",
-      "taxonomy_file": "src/data/tacoTypes.js",
+      "taxonomy_file": "scripts/lib/enrichment-entity.mjs",
       "source_policy_file": null,
       "source_pipeline": {
         "enabled": true,

@@ -12,6 +12,7 @@ import {
   isSourceCandidateForEntity,
   sourceInputSampleReportArguments,
   sourcePipelineOsmOutputPath,
+  sourcePipelineReviewOutputPath,
 } from '../scripts/lib/source-pipeline-entity.mjs';
 import { loadScopeConfig } from '../scripts/ops/source-input-sample-report.mjs';
 
@@ -71,6 +72,17 @@ test('OSM resumable output identity is entity-specific', () => {
   assert.equal(
     sourcePipelineOsmOutputPath(PACKAGE_ROOT, 'MI', 'taco'),
     resolve(PACKAGE_ROOT, 'reports/osm/mi-taco.json'),
+  );
+});
+
+test('review outputs preserve Pizza paths and isolate Taco artifacts', () => {
+  assert.equal(
+    sourcePipelineReviewOutputPath(PACKAGE_ROOT, 'osm', 'MI', 'pizza'),
+    resolve(PACKAGE_ROOT, 'reports/source-review/osm-MI-review.json'),
+  );
+  assert.equal(
+    sourcePipelineReviewOutputPath(PACKAGE_ROOT, 'osm', 'MI', 'taco'),
+    resolve(PACKAGE_ROOT, 'reports/source-review/osm-MI-taco-review.json'),
   );
 });
 

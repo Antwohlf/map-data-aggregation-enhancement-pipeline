@@ -47,7 +47,8 @@
       "max_files": 1
     },
     "overture_places": {
-      "enabled": true,
+      "enabled": false,
+      "disabled_reason": "The extracted Overture adapter queries pizza restaurants only; Taco requires its own validated category adapter.",
       "cadence_hours": 168,
       "regions_per_run": 1,
       "auto_create": true,

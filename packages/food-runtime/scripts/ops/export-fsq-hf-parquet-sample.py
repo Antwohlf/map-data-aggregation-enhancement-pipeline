@@ -159,7 +159,7 @@ def matches(row: dict[str, Any], args: argparse.Namespace) -> bool:
     category_terms = (
         ("burrito", "mexican", "taco", "taqueria", "tex-mex")
         if args.entity == "taco"
-        else ("apizza", "flatbread", "italian restaurant", "pizza", "pizzeria", "slice", "wood fired", "wood-fired")
+        else ("pizzeria", "pizza")
     )
     if args.query and args.query.lower() not in name and not any(term in categories for term in category_terms):
         return False

@@ -10,6 +10,7 @@ import {
   assertSourcePipelineEntity,
   sourceInputSampleReportArguments,
   sourcePipelineOsmOutputPath,
+  sourcePipelineReviewOutputPath,
 } from '../lib/source-pipeline-entity.mjs';
 
 const ROOT = process.cwd();
@@ -92,7 +93,7 @@ function isProcessAlive(pid) {
 function releaseLock() { rmSync(LOCK_PATH, { recursive: true, force: true }); }
 function due(entry, now) { return !entry?.last_success || (now - Date.parse(entry.last_success)) >= entry.cadence_hours * 3600000; }
 function stampReport(source, region, entity, output) {
-  const report = resolve(ROOT, 'reports/source-review', `${source}-${region}-${entity}-review.json`);
+  const report = sourcePipelineReviewOutputPath(ROOT, source, region, entity);
   return { input: output, report, reportFile: basename(report) };
 }
 function osmManifestPath(regionalOutput, bbox, step) {

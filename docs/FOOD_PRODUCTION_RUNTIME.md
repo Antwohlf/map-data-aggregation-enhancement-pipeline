@@ -22,6 +22,11 @@ New source/review/output implementations belong in their own adapter packages;
 the food compatibility code is not a universal dependency for BuiltHere.
 BuiltHere has not been cut over by this change.
 
+Taco's inherited Overture source is disabled: its exporter hardcodes the Pizza
+category. The corrected Taco predicate must not turn that into an apparently
+successful Taco ingestion run. OSM, FSQ, and official-website processing retain
+their existing configuration, now with Taco-specific candidate filtering.
+
 ## Code versus private state
 
 Install the root lockfile with `npm ci`. Use a separate host-owned directory
@@ -45,9 +50,13 @@ The wrapper reads workspace dotenv files, then preserves inherited scheduler
 settings. Product identity and source-state paths are pinned by the profile.
 Publication still runs the established guarded preflight; `--execute` on
 publication permits the existing bounded writes, not a preview.
+Execution refuses a staging marker or an absent existing queue. Clear the
+staging marker only after the coordinated stop-and-snapshot checks pass.
 
 The FSQ/Overture exporters require a host Python environment at
-`scripts/.fsq-venv` with the existing provider dependencies. Recreate it at its
+`scripts/.fsq-venv` with dependencies pinned in the package's `requirements.txt`.
+The migration host was verified with Python 3.9, pyarrow 21.0.0, and duckdb 1.4.5.
+Recreate it at its
 final path: moving a virtual environment can leave invalid executable paths.
 Provide `PG_DUMP_BIN` or a PATH containing the matching PostgreSQL `pg_dump`.
 Provide the scraper's browser executable and Ollama settings on the host.
