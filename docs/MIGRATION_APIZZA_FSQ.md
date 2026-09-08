@@ -1,7 +1,8 @@
 # APizzaMichigan FSQ migration slice
 
-Status: complete read-only shadow composition and fail-closed host runner; no
-real-data policy approval or cutover authority.
+Status: read-only shadow composition, host runner, and bounded source projection
+are implemented. Restricted historical-snapshot comparison is approved; there
+is no cutover authority.
 
 This implementation formally selects FSQ as the first executable
 APizzaMichigan extraction slice. FSQ was chosen
@@ -80,10 +81,10 @@ additions do not grant source authority or publication permission.
   binds the checked-in source policy and database contract, obtains only a
   dedicated read-only DSN from the host environment, uses a cross-process lock,
   supports host cancellation, and emits no host paths or source rows.
-- The checked-in source policy remains pending. Credential provisioning,
-  release provenance, owner policy approval, restricted-projection privacy
-  approval, and measured iMac resource bounds remain explicit activation
-  gates. See `docs/APIZZA_FSQ_SHADOW_HOST.md`.
+- The source policy permits restricted historical-snapshot comparison. The
+  original upstream release is unknown and must remain explicitly unverified.
+  Host credentials, snapshot fingerprints, and measured resource bounds are
+  recorded separately. See `docs/APIZZA_FSQ_SHADOW_HOST.md`.
 
 ## Missing parity gates
 
@@ -101,9 +102,8 @@ Before any shadow run, this slice still needs:
    projection with documented privacy controls, or replacement with a true
    streaming acquisition adapter.
 3. Restart, fault, artifact-backup, and restore tests required by Phase 1.
-4. Owner approval of the checked-in FSQ OS Places license/NOTICE evidence,
-   exact release identity, and restricted-projection privacy classification.
-   Synthetic approval is not FSQ source approval.
+4. Exact upstream release identity for official-release parity. Historical
+   host snapshots can exercise the comparison flow but cannot satisfy this gate.
 5. Provisioning and multiple complete shadow runs with every product writer
    absent.
 

@@ -55,6 +55,10 @@ async function makeTestFiles(options: { approved?: boolean } = {}): Promise<Test
     sourcePolicy.approvalStatus = "approved_read_only_shadow";
     sourcePolicy.ownerApprovedAt = "2026-09-07T12:00:00.000Z";
     sourcePolicy.privacyReviewStatus = "approved_restricted_projection";
+  } else {
+    sourcePolicy.approvalStatus = "pending_owner_approval";
+    sourcePolicy.ownerApprovedAt = null;
+    sourcePolicy.privacyReviewStatus = "pending_conservative_classification";
   }
   await writeFile(policyPath, JSON.stringify(sourcePolicy), { mode: 0o600 });
   const hostManifest: Record<string, CanonicalJson> = {

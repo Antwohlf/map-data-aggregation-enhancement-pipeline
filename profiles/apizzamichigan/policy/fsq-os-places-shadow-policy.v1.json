@@ -5,9 +5,9 @@
   "adapter": "json-file-snapshot",
   "resourceUri": "file-snapshot://pipeline-input/apizza-fsq-os-places-release-v1",
   "dataset": "FSQ OS Places",
-  "approvalStatus": "pending_owner_approval",
+  "approvalStatus": "approved_read_only_shadow",
   "approvedMode": "read_only_shadow",
-  "ownerApprovedAt": null,
+  "ownerApprovedAt": "2026-09-08T02:32:04.000Z",
   "expiresAt": null,
   "license": "Apache-2.0",
   "attribution": "Copyright 2024 Foursquare Labs, Inc.",
@@ -19,7 +19,7 @@
     "digest": "sha256:4806be0c73df2c2e6b68279e1d8aa74d9c6bb7f71adb968515888e722d035ab8"
   },
   "containsPii": true,
-  "privacyReviewStatus": "pending_conservative_classification",
+  "privacyReviewStatus": "approved_restricted_projection",
   "redistribution": "forbidden",
   "rawArtifactRetentionDays": 0
 }
