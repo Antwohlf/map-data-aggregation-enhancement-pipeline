@@ -21,6 +21,10 @@ import 'dotenv/config'
 import { getQueue } from './queue.mjs'
 import { calculatePriority } from './priority.mjs'
 import { enrichmentEntity } from '../lib/enrichment-entity.mjs'
+import {
+  BOOST_PENDING_CLASSIFY_JOB,
+  SELECT_EXISTING_CLASSIFY_JOBS,
+} from '../lib/classification-queue-sql.mjs'
 
 function parseArgs() {
   const args = process.argv.slice(2)
@@ -45,7 +49,7 @@ function printHelp() {
   console.log(`Usage: node scripts/enrichment/populate-classify-from-db.mjs [options]
 
 Options:
-  --type <pizza>            Place table family. Only pizza is supported for now.
+  --type <pizza|taco>       Place table family (default pizza)
   --state <code|*>          State filter (default MI)
   --ids <ids>               Exact comma-separated local place ids
   --id-prefix <prefix|*>    Optional canonical id prefix filter
@@ -53,14 +57,13 @@ Options:
   --max-place-id <id>       Maximum local place id
   --priority-boost <n>      Boost matching pending classify jobs after add
   --limit <n>               Maximum candidates to inspect (default 200)
-  --skip-existing           Skip places that already have any classify job
+  --skip-existing           Skip places with a classify job for this entity
   --retry-partial           Requeue completed jobs with partial classification once
   --dry-run                 Count candidates without adding or boosting jobs
   --help                    Print this help and exit
 
-Default mode writes classify jobs to the local SQLite queue. Use --dry-run
-before broad queue population. Taco classification is not wired to this
-classifier yet; use --type pizza explicitly in generated handoff commands.
+Default mode writes entity-scoped classify jobs to the local SQLite queue.
+Use --dry-run before broad queue population.
 `)
 }
 
@@ -146,7 +149,7 @@ async function main() {
   )
 
   const existingJobs = skipExisting && queue
-    ? new Map(queue.db.prepare("SELECT osm_id, status, data, id FROM jobs WHERE job_type = 'classify'").all().map(row => [row.osm_id, row]))
+    ? new Map(queue.db.prepare(SELECT_EXISTING_CLASSIFY_JOBS).all(entity.entity).map(row => [row.osm_id, row]))
     : new Map()
   const newRows = []
   const partialRows = []
@@ -181,7 +184,7 @@ async function main() {
   const jobs = eligibleRows.slice(0, limit).map((r) => ({
     jobType: 'classify',
     osmId: r.google_place_id,
-    placeType: type,
+    placeType: entity.entity,
     priority: calculatePriority(r.state),
     data: { state: r.state }
   }))
@@ -197,19 +200,12 @@ async function main() {
   let boosted = 0
 
   if (!dryRun && Number.isFinite(priorityBoost) && priorityBoost > 0 && jobs.length) {
-    const stmt = queue.db.prepare(`
-      UPDATE jobs
-      SET priority = ?
-      WHERE job_type = 'classify'
-        AND osm_id = ?
-        AND status = 'pending'
-        AND priority < ?
-    `)
+    const stmt = queue.db.prepare(BOOST_PENDING_CLASSIFY_JOB)
     const boostJobs = queue.db.transaction((rows) => {
       let changes = 0
       for (const job of rows) {
         const boostedPriority = (job.priority ?? calculatePriority(job.data?.state)) + priorityBoost
-        const result = stmt.run(boostedPriority, job.osmId, boostedPriority)
+        const result = stmt.run(boostedPriority, entity.entity, job.osmId, boostedPriority)
         changes += result.changes
       }
       return changes
