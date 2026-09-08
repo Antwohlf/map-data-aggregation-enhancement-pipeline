@@ -5,6 +5,7 @@ export * from "./fsq-preview.js";
 export * from "./fsq-release-v1.js";
 export * from "./fsq-shadow-v1.js";
 export * from "./matching-v1.js";
+export * from "./review-projection-v1.js";
 
 export const apizzaMichiganProfile = defineInertProfile({
   id: "apizzamichigan",
