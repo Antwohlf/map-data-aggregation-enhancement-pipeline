@@ -55,6 +55,9 @@ Taco's inherited Overture source is disabled: its exporter hardcodes the Pizza
 category. The corrected Taco predicate must not turn that into an apparently
 successful Taco ingestion run. OSM, FSQ, and official-website processing retain
 their existing configuration, now with Taco-specific candidate filtering.
+Per the migration decision, a dedicated Taco Overture adapter is deferred to a
+later change; it is not required for this cutover and must remain disabled until
+its Taco-specific acquisition and filtering have been validated.
 
 ## Code versus private state
 
@@ -63,6 +66,38 @@ with mode 0700 for `.env`, optional `.env.local`, SQLite queue, source snapshots
 reports, checkpoints, logs, and Python environment. Never commit that directory.
 The host must supply its existing narrow database credentials. This change
 does not create or broaden database grants.
+
+### Task credentials
+
+The production launcher loads `.env`, then `.env.local`, then optional
+`secrets/<profile>.<task>.env`. Publication tasks additionally load
+`secrets/publication.env` before their task file. Explicit inherited scheduler
+settings take precedence over files. Environment files must be regular,
+non-symlink files with no group/other permissions and at most 64 KiB.
+
+Keep Supabase publication credentials exclusively in `secrets/publication.env`
+or the individual publication task files, never in the shared dotenv files.
+Only publication tasks load that shared publication file. Source tokens are
+forwarded only to source tasks; database passwords remain available to tasks
+that access the local database. Child helpers preserve inherited task settings
+instead of replacing them with shared dotenv values.
+
+Deployment requires stopping and draining the scheduled jobs, backing up the
+private environment files, moving publication credentials out of **both**
+shared dotenv files, preparing the new code links, and validating source and
+publication runs after restart. Filtering the launcher's environment alone is
+insufficient: legacy children can still read the shared dotenv files.
+
+This reduces accidental credential inheritance; it is not an operating-system
+sandbox. Processes under the same host user can still read that user's private
+files. The environment filter targets named Supabase/source credentials and
+common secret suffixes, not every possible secret or credential-bearing variable;
+the scheduler must not inject unrelated credentials into these jobs.
+Restricted database roles also require appropriate host authentication
+rules; merely changing `PGUSER` does not restrict a password-free administrator
+connection. Coordinate changes to host-wide authentication with other database
+clients before applying them. Configure both `PG*` and `LOCAL_DB_*` settings
+where a task invokes helpers using both database configuration conventions.
 
 Run `node packages/food-runtime/production.mjs --prepare --workspace "$FOOD_WORKSPACE"`
 to link individual runtime code/config files into the private workspace.

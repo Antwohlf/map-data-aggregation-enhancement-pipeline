@@ -5,6 +5,7 @@ import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSy
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { executeTrustedHostStagesAsync } from '../executor/trusted-host.mjs';
+import { loadTaskEnvironment, filterTaskEnvironment } from './task-environment.mjs';
 
 export const codeRoot = dirname(fileURLToPath(import.meta.url));
 const catalog = JSON.parse(readFileSync(join(codeRoot, 'config/production-tasks.json'), 'utf8'));
@@ -109,7 +110,7 @@ export function planTask({ profile, task, workspace }, environment = process.env
     throw new Error('Shared tasks require food-shared; source/publication require a product profile');
   }
   const args = selected ? selected[definition.profileArgs] : definition.args;
-  const env = { ...environment, QUEUE_DB_PATH: join(workspace, 'scripts/.job-queue.db') };
+  const env = { ...filterTaskEnvironment(environment, task), QUEUE_DB_PATH: join(workspace, 'scripts/.job-queue.db') };
   if (selected) {
     env.APIZZA_SYNC_ENTITY = selected.entity;
     env.SOURCE_PIPELINE_CONFIG = selected.sourceConfig;
@@ -142,14 +143,7 @@ async function main(argv) {
     console.log(JSON.stringify(prepareWorkspace(workspace)));
     return;
   }
-  // Preserve the existing precedence: inherited launchd settings override dotenv.
-  const { parse } = await import('dotenv');
-  const fileEnv = {};
-  for (const name of ['.env', '.env.local']) {
-    const path = join(workspace, name);
-    if (existsSync(path)) Object.assign(fileEnv, parse(readFileSync(path)));
-  }
-  const plan = planTask({ ...options, workspace }, { ...fileEnv, ...process.env });
+  const plan = planTask({ ...options, workspace }, loadTaskEnvironment({ ...options, workspace }));
   if (!options.execute) {
     console.log(JSON.stringify({ profile: options.profile, task: options.task, command: plan.command, args: plan.args, cwd: plan.cwd, execute: false }));
     return;

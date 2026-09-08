@@ -5,11 +5,11 @@
  */
 
 import { execFileSync } from 'child_process';
-import { existsSync, readFileSync } from 'fs';
 import { basename, join, resolve } from 'path';
 import pg from 'pg';
 import Database from 'better-sqlite3';
 import { guardedPublishArgs, reviewedNewTarget } from '../lib/reviewed-new-entity-boundary.mjs';
+import { loadRuntimeEnvironment } from '../lib/runtime-environment.mjs';
 
 const NODE = process.execPath;
 const FOREGROUND_SCRAPE_LIMIT = Number.parseInt(process.env.REVIEW_BATCH_FOREGROUND_SCRAPE_LIMIT || '25', 10);
@@ -106,25 +106,8 @@ function runNode(args, { json = false, timeout = 120000 } = {}) {
   return json ? JSON.parse(stdout) : stdout;
 }
 
-function loadEnvFile(path) {
-  if (!existsSync(path)) return {};
-  const out = {};
-  for (const line of readFileSync(path, 'utf8').split('\n')) {
-    const trimmed = line.trim();
-    if (!trimmed || trimmed.startsWith('#')) continue;
-    const idx = trimmed.indexOf('=');
-    if (idx === -1) continue;
-    out[trimmed.slice(0, idx).trim()] = trimmed.slice(idx + 1).trim().replace(/^['"]|['"]$/g, '');
-  }
-  return out;
-}
-
 function dbConfig() {
-  const env = {
-    ...loadEnvFile(resolve(process.cwd(), '.env')),
-    ...loadEnvFile(resolve(process.cwd(), '.env.local')),
-    ...process.env,
-  };
+  const env = loadRuntimeEnvironment();
   return {
     host: env.LOCAL_DB_HOST || env.PGHOST || 'localhost',
     port: parseInt(env.LOCAL_DB_PORT || env.PGPORT || '5432', 10),

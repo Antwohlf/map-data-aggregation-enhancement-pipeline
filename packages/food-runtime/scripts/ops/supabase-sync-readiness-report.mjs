@@ -7,12 +7,11 @@
  */
 
 import pg from 'pg';
-import 'dotenv/config';
-import { readFileSync, existsSync } from 'fs';
 import { resolve } from 'path';
 import { createClient } from '@supabase/supabase-js';
 import { execFileSync } from 'child_process';
 import { readIdCheckpoint, readSyncCheckpoint } from '../lib/supabase-sync-checkpoint.mjs';
+import { loadRuntimeEnvironment } from '../lib/runtime-environment.mjs';
 import {
   CANONICAL_MIRROR_COLS,
   LIFECYCLE_COLS,
@@ -109,20 +108,6 @@ function parseIds(value) {
   return [...new Set(ids)];
 }
 
-function loadEnvLocal() {
-  const path = resolve(process.cwd(), '.env.local');
-  const out = { ...process.env };
-  if (existsSync(path)) {
-    for (const line of readFileSync(path, 'utf8').split('\n')) {
-      if (!line || line.startsWith('#')) continue;
-      const idx = line.indexOf('=');
-      if (idx === -1) continue;
-      out[line.slice(0, idx).trim()] = line.slice(idx + 1).trim();
-    }
-  }
-  return out;
-}
-
 function run(cmd, args = [], options = {}) {
   try {
     return execFileSync(cmd, args, {
@@ -188,7 +173,7 @@ function sample(rows, options) {
 async function main() {
   const options = parseArgs(process.argv);
   const root = repoRoot();
-  const env = loadEnvLocal();
+  const env = loadRuntimeEnvironment();
   const profile = supabaseSyncProfile(options.entity);
   const syncBoundary = assertSupabaseSyncTableBoundary({ entity: options.entity, targetTable: profile.targetTable });
 
