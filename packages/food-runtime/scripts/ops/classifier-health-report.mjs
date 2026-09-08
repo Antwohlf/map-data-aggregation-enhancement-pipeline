@@ -18,6 +18,7 @@ import {
   summarizeClassificationBacklog,
 } from '../lib/classification-backlog.mjs'
 import { enrichmentEntity } from '../lib/enrichment-entity.mjs'
+import { enrichmentProcessReport } from '../lib/enrichment-process-report.mjs'
 
 const argv = process.argv.slice(2)
 const args = new Set(argv)
@@ -115,28 +116,7 @@ function processReport() {
   const ps = spawnSync('ps', ['ax', '-o', 'pid=,command='], { encoding: 'utf8' })
   if (ps.status !== 0) return { ok: false, error: ps.stderr?.trim() || 'ps failed' }
 
-  const rows = ps.stdout
-    .split('\n')
-    .map(line => line.trim())
-    .filter(Boolean)
-    .filter(line => !line.startsWith(String(process.pid)))
-
-  const classifier = rows.filter(row =>
-    /^\d+\s+(?:\S*\/)?node\s+scripts\/enrichment\/agents\/llm-classifier\.mjs\b/.test(row)
-  )
-  const scraper = rows.filter(row =>
-    /^\d+\s+(?:\S*\/)?node\s+scripts\/enrichment\/agents\/web-scraper\.mjs\b/.test(row)
-  )
-  const unexpected = rows.filter(row =>
-    row.includes('coordinator.mjs') ||
-    row.includes('watchdog.mjs') ||
-    row.includes('watchdog-keepalive.mjs') ||
-    row.includes('osm-extractor.mjs') ||
-    row.includes('sync-agent.mjs')
-  )
-  const ollama = rows.filter(row => row.includes('ollama'))
-
-  return { ok: true, classifier, scraper, unexpected, ollama }
+  return { ok: true, ...enrichmentProcessReport(ps.stdout) }
 }
 
 function tunnelReport() {
