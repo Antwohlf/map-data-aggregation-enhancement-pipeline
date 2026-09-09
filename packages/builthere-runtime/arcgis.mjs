@@ -20,9 +20,12 @@ export function arcgisSource(name) {
 
 async function query(source, parameters, { fetchImpl = fetch, signal, timeoutMs = 30000, maxBytes = 8 * 1024 * 1024 } = {}) {
   const url = new URL(source.url + '/query');
-  for (const [key,value] of Object.entries({ f:'json', ...parameters })) url.searchParams.set(key, String(value));
+  // Full 250-ID pages can exceed the provider's URL limit once IDs get longer.
+  // ArcGIS query POST is read-only and keeps the bounded page in the form body.
+  const body = new URLSearchParams();
+  for (const [key,value] of Object.entries({ f:'json', ...parameters })) body.set(key, String(value));
   const timeout = AbortSignal.timeout(timeoutMs);
-  const response = await fetchImpl(url, { signal: signal ? AbortSignal.any([signal,timeout]) : timeout, redirect:'error', headers:{Accept:'application/json'} });
+  const response = await fetchImpl(url, { method:'POST', body, signal: signal ? AbortSignal.any([signal,timeout]) : timeout, redirect:'error', headers:{Accept:'application/json','content-type':'application/x-www-form-urlencoded'} });
   if (!response.ok) throw new Error(`ArcGIS request failed: HTTP ${response.status}`);
   if (Number(response.headers.get('content-length') || 0) > maxBytes) throw new Error('ArcGIS response exceeds byte limit');
   const reader = response.body?.getReader();

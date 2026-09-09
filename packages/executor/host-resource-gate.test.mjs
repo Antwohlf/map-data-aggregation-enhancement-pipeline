@@ -16,13 +16,16 @@ const childProgram = `
     await appendFile(logPath, 'enter ' + id + '\\n');
     process.stdout.write('entered\\n');
     if (crash === 'yes') await new Promise(() => { setInterval(() => {}, 1_000); });
-    await new Promise(resolve => setTimeout(resolve, Number(holdMs)));
+    if (holdMs === 'release') {
+      process.stdin.resume();
+      await new Promise(resolve => process.stdin.once('end', resolve));
+    } else await new Promise(resolve => setTimeout(resolve, Number(holdMs)));
     await appendFile(logPath, 'exit ' + id + '\\n');
   });
 `;
 
 function runChild(root, resource, id, holdMs, logPath, crash = 'no') {
-  const child = spawn(process.execPath, ['--input-type=module', '-e', childProgram, moduleUrl, root, resource, id, String(holdMs), logPath, crash], { stdio: ['ignore', 'pipe', 'pipe'] });
+  const child = spawn(process.execPath, ['--input-type=module', '-e', childProgram, moduleUrl, root, resource, id, String(holdMs), logPath, crash], { stdio: ['pipe', 'pipe', 'pipe'] });
   let stdout = '';
   let stderr = '';
   child.stdout.on('data', value => { stdout += value; });
@@ -31,7 +34,7 @@ function runChild(root, resource, id, holdMs, logPath, crash = 'no') {
     child.once('error', reject);
     child.once('exit', (code, signal) => resolve({ code, signal, stdout, stderr }));
   });
-  return { child, done, entered: () => waitFor(() => stdout.includes('entered')) };
+  return { child, done, release: () => child.stdin.end(), entered: () => waitFor(() => stdout.includes('entered')) };
 }
 
 async function waitFor(predicate, timeoutMs = 3_000) {
@@ -56,11 +59,14 @@ test('serializes cooperating processes in FIFO order', async t => {
   const root = await mkdtemp(join(tmpdir(), 'host-resource-gate-'));
   t.after(() => rm(root, { recursive: true, force: true }));
   const logPath = join(root, 'events.log');
-  const first = runChild(root, 'heavy-source', 'first', 250, logPath);
+  const first = runChild(root, 'heavy-source', 'first', 'release', logPath);
+  t.after(() => first.child.kill('SIGKILL'));
   await first.entered();
   const second = runChild(root, 'heavy-source', 'second', 30, logPath);
   await waitFor(async () => (await ticketCount(root, 'heavy-source')) === 2);
   const third = runChild(root, 'heavy-source', 'third', 10, logPath);
+  await waitFor(async () => (await ticketCount(root, 'heavy-source')) === 3);
+  first.release();
   const outcomes = await Promise.all([first.done, second.done, third.done]);
   assert.deepEqual(outcomes.map(value => value.code), [0, 0, 0], outcomes.map(value => value.stderr).join('\n'));
   assert.deepEqual((await readFile(logPath, 'utf8')).trim().split('\n'), ['enter first', 'exit first', 'enter second', 'exit second', 'enter third', 'exit third']);
@@ -95,13 +101,16 @@ test('a later process safely discards a dead queued waiter', async t => {
   const root = await mkdtemp(join(tmpdir(), 'host-resource-gate-'));
   t.after(() => rm(root, { recursive: true, force: true }));
   const logPath = join(root, 'events.log');
-  const holder = runChild(root, 'heavy-source', 'holder', 300, logPath);
+  const holder = runChild(root, 'heavy-source', 'holder', 'release', logPath);
+  t.after(() => holder.child.kill('SIGKILL'));
   await holder.entered();
   const deadWaiter = runChild(root, 'heavy-source', 'dead-waiter', 0, logPath);
   await waitFor(async () => (await ticketCount(root, 'heavy-source')) === 2);
   deadWaiter.child.kill('SIGKILL');
   await deadWaiter.done;
   const follower = runChild(root, 'heavy-source', 'follower', 0, logPath);
+  await waitFor(async () => (await ticketCount(root, 'heavy-source')) === 2);
+  holder.release();
   const outcomes = await Promise.all([holder.done, follower.done]);
   assert.deepEqual(outcomes.map(value => value.code), [0, 0], outcomes.map(value => value.stderr).join('\n'));
   assert.deepEqual((await readFile(logPath, 'utf8')).trim().split('\n'), ['enter holder', 'exit holder', 'enter follower', 'exit follower']);
