@@ -7,9 +7,9 @@
  */
 
 import pg from 'pg';
-import { existsSync, readFileSync } from 'fs';
 import { resolve } from 'path';
 import { summarizeDatabaseError } from '../lib/source-freshness-status.mjs';
+import { loadRuntimeEnvironment } from '../lib/runtime-environment.mjs';
 
 const ENTITY_TABLES = {
   pizza: 'pizza_places',
@@ -263,28 +263,8 @@ the location is within 25m, and both Latin labels are not in conflict.
 `);
 }
 
-function loadEnvFile(path) {
-  if (!existsSync(path)) return {};
-  const out = {};
-  const txt = readFileSync(path, 'utf8');
-  for (const line of txt.split('\n')) {
-    const trimmed = line.trim();
-    if (!trimmed || trimmed.startsWith('#')) continue;
-    const idx = trimmed.indexOf('=');
-    if (idx === -1) continue;
-    const key = trimmed.slice(0, idx).trim();
-    const value = trimmed.slice(idx + 1).trim().replace(/^['"]|['"]$/g, '');
-    out[key] = value;
-  }
-  return out;
-}
-
 function dbConfig() {
-  const env = {
-    ...loadEnvFile(resolve(process.cwd(), '.env')),
-    ...loadEnvFile(resolve(process.cwd(), '.env.local')),
-    ...process.env,
-  };
+  const env = loadRuntimeEnvironment();
 
   return {
     host: env.LOCAL_DB_HOST || env.PGHOST || 'localhost',

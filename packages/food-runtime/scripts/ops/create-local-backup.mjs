@@ -13,7 +13,6 @@ import {
   existsSync,
   mkdirSync,
   readdirSync,
-  readFileSync,
   rmSync,
   statSync,
   writeFileSync,
@@ -21,6 +20,7 @@ import {
 import { join, resolve } from 'node:path';
 import { hostname } from 'node:os';
 import Database from 'better-sqlite3';
+import { loadRuntimeEnvironment } from '../lib/runtime-environment.mjs';
 
 const ROOT = process.cwd();
 const PG_DUMP_CANDIDATES = [
@@ -31,31 +31,10 @@ function defaultPgDumpBin() {
   return PG_DUMP_CANDIDATES.find(candidate => existsSync(candidate)) || 'pg_dump';
 }
 
-function loadEnvFile(path) {
-  if (!existsSync(path)) return {};
-  return Object.fromEntries(
-    readFileSync(path, 'utf8')
-      .split(/\r?\n/)
-      .map(line => line.trim())
-      .filter(line => line && !line.startsWith('#'))
-      .map(line => line.replace(/^export\s+/, ''))
-      .filter(line => line.includes('='))
-      .map(line => {
-        const separator = line.indexOf('=');
-        const key = line.slice(0, separator).trim();
-        const value = line.slice(separator + 1).trim().replace(/^['"]|['"]$/g, '');
-        return [key, value];
-      }),
-  );
-}
-
-const fileEnv = {
-  ...loadEnvFile(join(ROOT, '.env')),
-  ...loadEnvFile(join(ROOT, '.env.local')),
-};
+const runtimeEnvironment = loadRuntimeEnvironment({ root: ROOT });
 
 function value(name, fallback = undefined) {
-  return process.env[name] ?? fileEnv[name] ?? fallback;
+  return runtimeEnvironment[name] ?? fallback;
 }
 
 function parseArgs(argv) {

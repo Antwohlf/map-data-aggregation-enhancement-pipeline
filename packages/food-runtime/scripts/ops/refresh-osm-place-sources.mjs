@@ -9,28 +9,14 @@
  */
 
 import pg from 'pg';
-import { existsSync, readFileSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { loadRuntimeEnvironment } from '../lib/runtime-environment.mjs';
 
 const ROOT = process.cwd();
 
-function loadEnv(path) {
-  if (!existsSync(path)) return {};
-  return Object.fromEntries(readFileSync(path, 'utf8')
-    .split('\n')
-    .filter(line => line && !line.trim().startsWith('#') && line.includes('='))
-    .map(line => {
-      const [key, ...rest] = line.split('=');
-      return [key.trim(), rest.join('=').trim().replace(/^['"]|['"]$/g, '')];
-    }));
-}
-
 function dbConfig() {
-  const env = {
-    ...loadEnv(resolve(ROOT, '.env')),
-    ...loadEnv(resolve(ROOT, '.env.local')),
-    ...process.env,
-  };
+  const env = loadRuntimeEnvironment({ root: ROOT });
   return {
     host: env.LOCAL_DB_HOST || env.PGHOST || 'localhost',
     port: Number(env.LOCAL_DB_PORT || env.PGPORT || 5432),

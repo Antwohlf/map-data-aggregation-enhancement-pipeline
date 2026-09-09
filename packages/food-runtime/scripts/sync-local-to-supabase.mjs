@@ -15,9 +15,9 @@
  */
 
 import pg from 'pg';
-import { readFileSync, existsSync } from 'fs';
 import { resolve } from 'path';
 import { createClient } from '@supabase/supabase-js';
+import { loadRuntimeEnvironment } from './lib/runtime-environment.mjs';
 import {
   checkpointFromRow,
   idCheckpointFromRow,
@@ -135,22 +135,6 @@ function parseIds(value) {
   return [...new Set(ids)];
 }
 
-function loadEnvLocal() {
-  const p = resolve(process.cwd(), '.env.local');
-  if (!existsSync(p)) return {};
-  const txt = readFileSync(p, 'utf8');
-  const out = {};
-  for (const line of txt.split('\n')) {
-    if (!line || line.startsWith('#')) continue;
-    const idx = line.indexOf('=');
-    if (idx === -1) continue;
-    const k = line.slice(0, idx).trim();
-    const v = line.slice(idx + 1).trim();
-    out[k] = v;
-  }
-  return out;
-}
-
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 
 function isRetryableSupabaseError(error) {
@@ -236,11 +220,11 @@ async function main() {
   if (!args.dryRun && !profile.publicationEnabled) {
     throw new Error(`${args.entity} publication is disabled; use --dry-run until its public schema and guarded RPC are enabled.`);
   }
-  const env = loadEnvLocal();
-  const bulkRpc = args.bulkRpc || /^(1|true|yes)$/i.test(String(env.APIZZA_SYNC_BULK_RPC || process.env.APIZZA_SYNC_BULK_RPC || '').trim());
+  const env = loadRuntimeEnvironment();
+  const bulkRpc = args.bulkRpc || /^(1|true|yes)$/i.test(String(env.APIZZA_SYNC_BULK_RPC || '').trim());
   assertSupabaseSyncTableBoundary({ entity: args.entity, targetTable: profile.targetTable });
 
-  const credentials = resolveSupabaseSyncCredentials({ ...process.env, ...env }, { dryRun: args.dryRun });
+  const credentials = resolveSupabaseSyncCredentials(env, { dryRun: args.dryRun });
   const supabaseUrl = credentials.url;
   const supabaseKey = credentials.key;
 

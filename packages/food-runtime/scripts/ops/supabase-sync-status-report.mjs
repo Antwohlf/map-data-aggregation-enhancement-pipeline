@@ -4,7 +4,6 @@
  */
 
 import pg from 'pg';
-import 'dotenv/config';
 import { readFileSync, existsSync } from 'fs';
 import { resolve } from 'path';
 import { homedir } from 'os';
@@ -14,6 +13,7 @@ import { readSyncCheckpoint } from '../lib/supabase-sync-checkpoint.mjs';
 import { readSyncRunState, syncRunStatePath } from '../lib/supabase-sync-run-state.mjs';
 import { summarizeSyncStatusError } from '../lib/supabase-sync-status.mjs';
 import { defaultSyncStatusFile } from '../lib/supabase-sync-status-file.mjs';
+import { loadRuntimeEnvironment } from '../lib/runtime-environment.mjs';
 import {
   supabaseSyncSelectCols,
   assertSupabaseSyncTableBoundary,
@@ -70,20 +70,6 @@ Options:
     out.checkpoint = out.entity === 'pizza'
       ? 'scripts/.supabase-sync-checkpoint.json'
       : `scripts/.${out.entity}-supabase-sync-checkpoint.json`;
-  }
-  return out;
-}
-
-function loadEnvLocal() {
-  const path = resolve(process.cwd(), '.env.local');
-  const out = { ...process.env };
-  if (existsSync(path)) {
-    for (const line of readFileSync(path, 'utf8').split('\n')) {
-      if (!line || line.startsWith('#')) continue;
-      const idx = line.indexOf('=');
-      if (idx === -1) continue;
-      out[line.slice(0, idx).trim()] = line.slice(idx + 1).trim();
-    }
   }
   return out;
 }
@@ -224,7 +210,7 @@ async function main() {
   const root = repoRoot();
   const git = gitReport(root);
   const profile = supabaseSyncProfile(options.entity);
-  const env = loadEnvLocal();
+  const env = loadRuntimeEnvironment();
   const checkpoint = readSyncCheckpoint(options.checkpoint);
   const runState = readSyncRunState(syncRunStatePath(
     env.APIZZA_SYNC_STATUS_FILE || defaultSyncStatusFile(options.entity),
