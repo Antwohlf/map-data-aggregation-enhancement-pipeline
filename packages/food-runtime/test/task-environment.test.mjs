@@ -16,7 +16,7 @@ test('publication credentials reach only publication; unrelated secrets reach no
   const env = { 'SUPABASE_SERVICE_ROLE_KEY': '<synthetic-publish>', VITE_SUPABASE_URL: 'https://example.test', HF_TOKEN: '<synthetic-source>', ADMIN_PASSWORD: '<synthetic-admin>', GITHUB_TOKEN: '<synthetic-git>', 'PGPASSWORD': '<synthetic-db>', PATH: '/usr/bin' };
   for (const task of ['source', 'publish', 'classify', 'scrape', 'feed-classifier', 'backup']) {
     const selected = filterTaskEnvironment(env, task);
-    assert.equal(selected.SUPABASE_SERVICE_ROLE_KEY, task === 'publish' ? env.SUPABASE_SERVICE_ROLE_KEY : undefined);
+    assert.equal(selected.SUPABASE_SERVICE_ROLE_KEY, task === 'publish' ? env['SUPABASE_SERVICE_ROLE_KEY'] : undefined);
     assert.equal(selected.HF_TOKEN, task === 'source' ? env.HF_TOKEN : undefined);
     assert.equal(selected.ADMIN_PASSWORD, undefined);
     assert.equal(selected.GITHUB_TOKEN, undefined);
