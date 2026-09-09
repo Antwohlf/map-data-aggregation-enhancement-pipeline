@@ -6,6 +6,14 @@ import dotenv from 'dotenv';
 import pg from 'pg';
 import { postgresContract, runBuiltHere } from './runner.mjs';
 
+export function createDatabasePool(connectionString, report = event => console.warn(JSON.stringify(event))) {
+  // Every contract invocation is one atomic SQL statement. Release its
+  // connection while waiting for host admission or fetching a source page.
+  const pool = new pg.Pool({connectionString,application_name:'builthere-pipeline-v1',max:1,idleTimeoutMillis:30000,connectionTimeoutMillis:15000,statement_timeout:120000});
+  pool.on('error', error => report({type:'idle_database_connection_closed',code:/^[A-Z0-9_]{2,32}$/.test(error?.code || '') ? error.code : 'DATABASE_CONNECTION_CLOSED'}));
+  return pool;
+}
+
 export function parseArguments(args) {
   const options = {execute:false,batchSize:100,maxBatches:4,tipLimit:100};
   const fields = {'--workspace':'workspace','--env-file':'envFile','--batch-size':'batchSize','--max-batches':'maxBatches','--tip-limit':'tipLimit'};
@@ -37,12 +45,11 @@ export async function main(args = process.argv.slice(2)) {
   // Certificate validation is never disabled, including URLs originally emitted
   // by providers with the ambiguous libpq sslmode=require spelling.
   connection.searchParams.set('sslmode','verify-full');
-  const client = new pg.Client({connectionString:connection.toString(),application_name:'builthere-pipeline-v1',connectionTimeoutMillis:15000,statement_timeout:120000});
+  const client = createDatabasePool(connection.toString());
   const controller = new AbortController();
   const stop = () => controller.abort(new Error('BuiltHere run interrupted'));
   process.once('SIGTERM',stop); process.once('SIGINT',stop);
   try {
-    await client.connect();
     const privileges = await client.query('SELECT rolsuper,rolcreatedb,rolcreaterole,rolreplication,rolbypassrls FROM pg_roles WHERE rolname=current_user');
     if (privileges.rows.length !== 1 || Object.values(privileges.rows[0]).some(Boolean)) throw new Error('BuiltHere database role exceeds runtime privileges');
     const summary = await runBuiltHere({...options,env,database:postgresContract(client),signal:controller.signal,onEvent:event => console.log(JSON.stringify(event))});
