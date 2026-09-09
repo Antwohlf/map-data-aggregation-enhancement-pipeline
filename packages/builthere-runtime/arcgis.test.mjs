@@ -12,17 +12,29 @@ test('source IDs are fixed, bounded, sorted and validated before paging',async()
 
 test('pages use exact IDs and a field allowlist; missing records never become deletions',async()=>{
   let requested;
-  const page = await fetchArcgisRecords('ann-arbor',[1,2],{fetchImpl:async url=>{
-    requested=url;
+  const page = await fetchArcgisRecords('ann-arbor',[1,2],{fetchImpl:async (url,options)=>{
+    assert.equal(options.method,'POST');
+    assert.equal(url.search,'');
+    requested=options.body;
     return new Response(JSON.stringify({features:[{attributes:{OBJECTID:1,PLANNUMBER:'synthetic-plan',ADDRESS:'123 Example Street',submitterEmail:'not-retained'},geometry:{x:-83,y:42,z:5}}]}));
   }});
-  assert.equal(requested.searchParams.get('objectIds'),'1,2');
-  assert.equal(requested.searchParams.get('outSR'),'4326');
-  assert.equal(requested.searchParams.get('orderByFields'),'OBJECTID ASC');
-  assert(!requested.searchParams.get('outFields').includes('*'));
+  assert.equal(requested.get('objectIds'),'1,2');
+  assert.equal(requested.get('outSR'),'4326');
+  assert.equal(requested.get('orderByFields'),'OBJECTID ASC');
+  assert(!requested.get('outFields').includes('*'));
   assert.deepEqual(page.missingIds,[2]);
   assert.equal(page.records[0].submitterEmail,undefined);
   assert.deepEqual(page.records[0].geometry,{x:-83,y:42});
+});
+
+test('full pages of long object IDs never overflow the request URL',async()=>{
+  const ids=Array.from({length:250},(_,i)=>1000000+i);
+  await fetchArcgisRecords('detroit',ids,{fetchImpl:async(url,options)=>{
+    assert(url.href.length<500);
+    assert.equal(options.method,'POST');
+    assert.deepEqual(options.body.get('objectIds').split(',').map(Number),ids);
+    return new Response(JSON.stringify({features:[]}));
+  }});
 });
 
 test('provider errors, transfer truncation, identity injection and oversized bodies fail closed',async()=>{
