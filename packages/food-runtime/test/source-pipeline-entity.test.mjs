@@ -12,9 +12,10 @@ import {
   isSourceCandidateForEntity,
   sourceInputSampleReportArguments,
   sourcePipelineOsmOutputPath,
+  sourcePipelineOvertureOutputPath,
   sourcePipelineReviewOutputPath,
 } from '../scripts/lib/source-pipeline-entity.mjs';
-import { loadScopeConfig } from '../scripts/ops/source-input-sample-report.mjs';
+import { loadScopeConfig, normalizeSourceRow } from '../scripts/ops/source-input-sample-report.mjs';
 
 const PACKAGE_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const PIZZA_CONFIG_PATH = resolve(PACKAGE_ROOT, 'config/source-pipeline.json');
@@ -62,6 +63,13 @@ test('both checked-in configs declare supported, distinct entities and scopes', 
     () => loadScopeConfig(resolve(PACKAGE_ROOT, 'config/missing-source-pipeline.json'), 'pizza'),
     /Scope config not found/,
   );
+
+  assert.equal(PIZZA_CONFIG.sources.overture_places.enabled, true);
+  assert.equal(PIZZA_CONFIG.sources.overture_places.category_policy, 'overture-pizza-taxonomy-v1');
+  assert.equal(PIZZA_CONFIG.stageAdapters.overture_places.acquisition, 'food-source-overture-v1');
+  assert.equal(TACO_CONFIG.sources.overture_places.enabled, true);
+  assert.equal(TACO_CONFIG.sources.overture_places.category_policy, 'overture-taco-taxonomy-v1');
+  assert.equal(TACO_CONFIG.stageAdapters.overture_places.acquisition, 'food-source-overture-taco-v1');
 });
 
 test('OSM resumable output identity is entity-specific', () => {
@@ -73,6 +81,45 @@ test('OSM resumable output identity is entity-specific', () => {
     sourcePipelineOsmOutputPath(PACKAGE_ROOT, 'MI', 'taco'),
     resolve(PACKAGE_ROOT, 'reports/osm/mi-taco.json'),
   );
+});
+
+test('Overture v2 resumable output identity is entity-specific', () => {
+  assert.equal(
+    sourcePipelineOvertureOutputPath(PACKAGE_ROOT, 'MI', 'pizza'),
+    resolve(PACKAGE_ROOT, 'data/source-inputs/overture_places-mi-pizza-v2.json'),
+  );
+  assert.equal(
+    sourcePipelineOvertureOutputPath(PACKAGE_ROOT, 'MI', 'taco'),
+    resolve(PACKAGE_ROOT, 'data/source-inputs/overture_places-mi-taco-v2.json'),
+  );
+});
+
+test('Overture taxonomy and record-source provenance survive normalization', () => {
+  const normalized = normalizeSourceRow({
+    id: 'gers-synthetic-taco',
+    name: 'El Camino',
+    lat: 42.3,
+    lng: -83.1,
+    primary_category: 'mexican_restaurant',
+    basic_category: 'restaurant',
+    taxonomy: { primary: 'mexican_restaurant', hierarchy: ['food_and_drink', 'restaurant', 'latin_american_restaurant', 'mexican_restaurant'], alternates: ['taco_restaurant'] },
+    country: 'US',
+    region: 'MI',
+    overture_sources: [{ dataset: 'synthetic-provider', license: 'CDLA-Permissive-2.0' }],
+    overture_release: '2026-08-19.0',
+    overture_adapter: 'food-source-overture-taco-v1',
+    overture_category_policy: 'overture-taco-taxonomy-v1',
+    attribution_url: 'https://docs.overturemaps.org/attribution/',
+  }, 'overture_places');
+
+  assert.equal(isSourceCandidateForEntity(normalized, 'taco'), true);
+  assert.equal(isSourceCandidateForEntity(normalized, 'pizza'), false);
+  assert.equal(normalized.country, 'US');
+  assert.equal(normalized.source_release, '2026-08-19.0');
+  assert.equal(normalized.source_adapter, 'food-source-overture-taco-v1');
+  assert.deepEqual(normalized.upstream_sources, [{ dataset: 'synthetic-provider', license: 'CDLA-Permissive-2.0' }]);
+  assert(normalized.categories.includes('mexican_restaurant'));
+  assert(normalized.categories.includes('taco_restaurant'));
 });
 
 test('review outputs preserve Pizza paths and isolate Taco artifacts', () => {

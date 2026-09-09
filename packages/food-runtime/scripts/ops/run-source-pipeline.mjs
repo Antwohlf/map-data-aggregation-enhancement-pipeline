@@ -5,13 +5,15 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync, rmSync } from 'node
 import { basename, dirname, resolve } from 'node:path';
 import { selectSourcePipelineRegions } from '../lib/source-pipeline-scope.mjs';
 import { sourceAutoLinkArguments } from '../lib/source-auto-link-policy.mjs';
-import { executeTrustedHostStages } from '@map-pipeline/executor/trusted-host';
+import { executeTrustedHostStagesAsync } from '@map-pipeline/executor/trusted-host';
+import { withHostCompute } from '@map-pipeline/executor/host-resource-gate';
 import { createFoodSourceStages } from '../lib/food-source-stages.mjs';
 import { summarizeOsmManifest } from '../lib/osm-refresh-summary.mjs';
 import {
   assertSourcePipelineEntity,
   sourceInputSampleReportArguments,
   sourcePipelineOsmOutputPath,
+  sourcePipelineOvertureOutputPath,
   sourcePipelineReviewOutputPath,
 } from '../lib/source-pipeline-entity.mjs';
 
@@ -185,9 +187,11 @@ function runSourceAcquisition(source, region, output, config, state) {
     ], { timeout: OSM_PIPELINE_TIMEOUT_MS, env: { ...process.env, OSM_ENTITY: config.entity, OSM_TILE_TIMEOUT_MS: String(tileTimeout), OSM_REFRESH_AFTER_HOURS: String(refreshAfterHours), OVERPASS_REQUEST_TIMEOUT_MS: String(requestTimeout), OVERPASS_QUERY_TIMEOUT_SECONDS: String(queryTimeout) } });
     writeFileSync(output, readFileSync(regionalOutput));
   } else if (source === 'overture_places') {
-    const overtureOutput = resolve(ROOT, 'data/source-inputs', `overture_places-${region.key}.json`);
+    const categoryPolicy = config.sources.overture_places.category_policy;
+    if (!categoryPolicy) throw new Error('Overture source requires an exact category_policy');
+    const overtureOutput = sourcePipelineOvertureOutputPath(ROOT, region.key, config.entity);
     const overtureManifest = `${overtureOutput}.manifest.json`;
-    run(resolve(ROOT, 'scripts/.fsq-venv/bin/python'), ['scripts/ops/export-overture-tiles.py', '--bbox', region.bbox.join(','), '--step', String(config.sources.overture_places.tile_step || 1), '--max-tiles', String(config.sources.overture_places.tiles_per_run || 1), '--output', overtureOutput, '--manifest', overtureManifest, '--limit', String(config.limits.candidate_rows_per_source)], { timeout: 1200000 });
+    run(resolve(ROOT, 'scripts/.fsq-venv/bin/python'), ['scripts/ops/export-overture-tiles.py', '--entity', config.entity, '--category-policy', categoryPolicy, '--bbox', region.bbox.join(','), '--step', String(config.sources.overture_places.tile_step || 1), '--max-tiles', String(config.sources.overture_places.tiles_per_run || 1), '--output', overtureOutput, '--manifest', overtureManifest, '--limit', String(config.limits.candidate_rows_per_source)], { timeout: 1200000 });
     writeFileSync(output, readFileSync(overtureOutput));
   } else if (source === 'wikidata') {
     run(NODE, ['scripts/ops/export-wikidata-source.mjs', '--output', output, '--limit', String(config.sources.wikidata.rows_per_run || 50)], { timeout: 240000 });
@@ -197,11 +201,12 @@ function runSourceAcquisition(source, region, output, config, state) {
   return { input: output, osmProvenanceRefresh };
 }
 
-function runAdapter(source, region, output, config, state) {
+async function runAdapter(source, region, output, config, state) {
   const stages = createFoodSourceStages({
+    entity: config.entity,
     source,
     adapterIds: config.stageAdapters?.[source],
-    acquire: () => runSourceAcquisition(source, region, output, config, state),
+    acquire: () => withHostCompute(() => runSourceAcquisition(source, region, output, config, state)),
     match: (_, inputs) => {
       const paths = stampReport(source, region.key, config.entity, inputs.acquire.input);
       run(NODE, sourceInputSampleReportArguments({
@@ -228,7 +233,7 @@ function runAdapter(source, region, output, config, state) {
       return { ...paths, osmProvenanceRefresh };
     },
   });
-  const result = executeTrustedHostStages({ definition: stages.definition, registry: stages.registry, context: { source, entity: config.entity, region: region.key, apply: config.apply } });
+  const result = await executeTrustedHostStagesAsync({ definition: stages.definition, registry: stages.registry, context: { source, entity: config.entity, region: region.key, apply: config.apply } });
   return result.outputs.review;
 }
 
@@ -405,7 +410,7 @@ try {
       }
       if (source === 'official_website') {
         assertSourceCapabilities(source, sourceConfig, ['match_existing', 'enrich_evidence']);
-        report.website = runWebsiteDrain(config, options.apply);
+        report.website = await withHostCompute(() => runWebsiteDrain(config, options.apply));
         state.sources[source] = {
           ...(state.sources[source] || {}),
           last_attempt: new Date().toISOString(),
@@ -416,7 +421,7 @@ try {
       }
       if (source === 'all_the_places') {
         assertSourceCapabilities(source, sourceConfig, ['discover', 'match_existing', 'enrich_evidence']);
-        const result = runAtp(region, config, state.sources, options.apply, config.sources[source].spiders_per_run || 3);
+        const result = await withHostCompute(() => runAtp(region, config, state.sources, options.apply, config.sources[source].spiders_per_run || 3));
         report.work_units.push({ source, region: region.key, spiders: result?.selected || [] });
         if (options.apply) {
           report.auto_link = run(NODE, ['scripts/ops/auto-link-source-review-queue.mjs', '--entity', config.entity, '--source', source, '--exact-identifiers', '--min-exact-identifiers', '3', '--max-distance-m', '10', '--limit', '100', ...(options.apply ? ['--apply'] : [])], { timeout: 180000 }).slice(-2000);
@@ -442,7 +447,7 @@ try {
           const region = regions[(startingRegionIndex + regionOffset) % regions.length];
           const output = resolve(ROOT, 'data/source-inputs', `${source}-${region.key}-${now}-${regionOffset}.json`);
           mkdirSync(dirname(output), { recursive: true });
-          const paths = runAdapter(source, region, output, { ...config, apply: options.apply }, state);
+          const paths = await runAdapter(source, region, output, { ...config, apply: options.apply }, state);
           report.work_units.push({
             source,
             region: region.key,

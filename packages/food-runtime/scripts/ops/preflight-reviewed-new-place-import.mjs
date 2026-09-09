@@ -221,8 +221,8 @@ function sourceMetadata(source) {
       attribution: 'OpenStreetMap contributors',
     },
     overture_places: {
-      license: 'see-release-attribution',
-      attribution: 'Overture Maps Foundation and source contributors',
+      license: 'see-release-and-record-sources',
+      attribution: 'Overture Maps Foundation, overturemaps.org',
     },
     wikidata: {
       license: 'CC0-1.0',

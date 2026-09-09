@@ -38,6 +38,11 @@ export function sourcePipelineOsmOutputPath(root, regionKey, entity) {
   return resolve(root, 'reports/osm', `${String(regionKey).toLowerCase()}-${supportedEntity}.json`);
 }
 
+export function sourcePipelineOvertureOutputPath(root, regionKey, entity) {
+  const supportedEntity = assertSourcePipelineEntity(entity);
+  return resolve(root, 'data/source-inputs', `overture_places-${String(regionKey).toLowerCase()}-${supportedEntity}-v2.json`);
+}
+
 export function sourcePipelineReviewOutputPath(root, source, regionKey, entity) {
   const supportedEntity = assertSourcePipelineEntity(entity);
   const fileName = supportedEntity === 'pizza'
