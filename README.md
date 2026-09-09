@@ -10,9 +10,12 @@ TacoboutMichigan, and BuildHere.city profiles.
 This is a public, Apache-2.0-licensed repository. It contains no production
 credentials or runtime state. Generic executor product profiles remain inert
 until their source terms, target contracts, and deployment manifests are approved.
-The separately gated [food compatibility runtime](docs/FOOD_PRODUCTION_RUNTIME.md)
-extracts the existing Pizza/Taco jobs for coordinated host migration; it does
-not enable writes through the generic executor.
+The [food production runtime](docs/FOOD_PRODUCTION_RUNTIME.md) runs the extracted
+Pizza/Taco jobs using registered trusted-host stages. The BuiltHere runtime adds
+city-specific acquisition, transformation, review, and database-contract output
+stages to that same executor. These trusted-host runtimes are distinct from the
+experimental, preview-only broker described below; they are not a sandbox for
+untrusted plugins.
 
 ## Current scope
 
@@ -56,9 +59,9 @@ non-authoritative shadow runtime that can join one exact host-registered,
 bounded FSQ OS release projection to one exact host-configured PostgreSQL view
 under a dedicated read-only credential. That shadow runtime does **not** download the upstream
 FSQ release, retain a raw source artifact, or write product databases. Real
-profiles have no effect policy or plugin-lock binding. The existing application
-pipelines remain authoritative until source-by-source cutover gates and
-rollback rehearsals pass.
+profiles in the experimental broker have no effect policy or plugin-lock binding.
+Production activation is separately controlled through the trusted-host runtime,
+private task configuration, scoped database credentials, and deployment checks.
 
 ## Known intentional limits
 
@@ -102,9 +105,11 @@ requires an exact host-owned source grant and matching snapshot attestation; it
 still permits no non-preview writes. Both runtimes run plugins in-process with
 ambient Node authority and must use trusted plugins; this milestone is not a
 security sandbox. The FSQ source policy permits restricted read-only comparison
-under a host-pinned manifest; it grants no product-write authority. Apply execution, shared host-wide
-admission, out-of-process supervision, external source acquisition, worker queues, writable product
-database adapters, and publication sinks remain future milestones.
+under a host-pinned manifest; it grants no product-write authority. Broker-mediated
+apply execution remains a future milestone. The separate trusted-host path has
+process supervision, shared compute admission, external-source adapters, food
+worker queues, and product-specific publication adapters; its database access is
+restricted by actual task credentials, not by the preview broker.
 
 This repository has no release tags or published packages. Until the first
 tag, the untagged `v1alpha1` contract is intentionally mutable and has no

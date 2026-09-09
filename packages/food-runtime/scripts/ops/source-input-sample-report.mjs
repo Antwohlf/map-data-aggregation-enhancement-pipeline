@@ -67,16 +67,21 @@ export const SOURCE_CONFIGS = {
   },
   overture_places: {
     label: 'Overture Places',
-    license: 'see-release-attribution',
-    attribution: 'Overture Maps Foundation and source contributors',
+    license: 'see-release-and-record-sources',
+    attribution: 'Overture Maps Foundation, overturemaps.org',
     sourceId: ['id', 'gers_id'],
     lat: ['lat', 'latitude'],
     lng: ['lng', 'lon', 'longitude'],
-    category: ['basic_category', 'categories', 'taxonomy', 'primary_category'],
+    category: ['primary_category', 'basic_category', 'taxonomy', 'categories', 'category'],
     website: ['websites', 'website'],
     phone: ['phones', 'phone'],
     closed: ['operating_status'],
     confidence: ['confidence'],
+    upstreamSources: ['overture_sources', 'sources'],
+    release: ['overture_release'],
+    adapter: ['overture_adapter'],
+    categoryPolicy: ['overture_category_policy'],
+    attributionUrl: ['attribution_url'],
   },
   wikidata: {
     label: 'Wikidata',
@@ -431,6 +436,11 @@ export function normalizeSourceRow(row, sourceKey) {
     spider: valueFor(map, config.spider),
     source_url: valueFor(map, config.sourceUrl) || website,
     confidence: Number(valueFor(map, config.confidence)),
+    upstream_sources: parseMaybeJson(valueFor(map, config.upstreamSources)),
+    source_release: valueFor(map, config.release),
+    source_adapter: valueFor(map, config.adapter),
+    source_category_policy: valueFor(map, config.categoryPolicy),
+    attribution_url: valueFor(map, config.attributionUrl),
     is_closed: hasClosedDate || Boolean(
       closedValue &&
       [
@@ -714,6 +724,13 @@ function sourceData(candidate) {
     website: candidate.website,
     phone: candidate.phone,
     is_closed: Boolean(candidate.is_closed),
+    ...(candidate.source === 'overture_places' ? {
+      upstream_sources: candidate.upstream_sources,
+      source_release: candidate.source_release,
+      source_adapter: candidate.source_adapter,
+      source_category_policy: candidate.source_category_policy,
+      attribution_url: candidate.attribution_url,
+    } : {}),
   };
 }
 
@@ -745,6 +762,13 @@ function sourceRecordData(candidate, match) {
     source_url: sourceUrl(candidate),
     confidence: Number.isFinite(candidate.confidence) ? candidate.confidence : null,
     is_closed: Boolean(candidate.is_closed),
+    ...(candidate.source === 'overture_places' ? {
+      upstream_sources: candidate.upstream_sources,
+      source_release: candidate.source_release,
+      source_adapter: candidate.source_adapter,
+      source_category_policy: candidate.source_category_policy,
+      attribution_url: candidate.attribution_url,
+    } : {}),
     matched_place: {
       id: match.id,
       name: match.name,

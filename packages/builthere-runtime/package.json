@@ -1,0 +1,13 @@
+{
+  "name": "@map-pipeline/builthere-runtime",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "license": "Apache-2.0",
+  "scripts": { "test": "node --test '*.test.mjs'" },
+  "dependencies": {
+    "@map-pipeline/executor": "*",
+    "dotenv": "16.6.1",
+    "pg": "8.22.0"
+  }
+}

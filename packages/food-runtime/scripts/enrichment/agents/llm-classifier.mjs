@@ -15,6 +15,7 @@
 import { getQueue } from '../queue.mjs'
 import pg from 'pg'
 import 'dotenv/config'
+import { withHostCompute } from '@map-pipeline/executor/host-resource-gate'
 import { inferStyleFromName, inferStyleFromBrandWikidata, inferPriceFromChain } from '../../lib/style-inference.mjs'
 import { hasStyleEvidence } from '../../lib/style-evidence.mjs'
 import { PIZZA_STYLES, normalizePizzaStyle } from '../../lib/pizza-style-taxonomy.mjs'
@@ -82,9 +83,11 @@ function normalizePrice(price) {
 async function ollamaGenerate(prompt, { onController } = {}) {
   const controller = new AbortController()
   if (typeof onController === 'function') onController(controller)
-  const timeout = setTimeout(() => controller.abort(), OLLAMA_TIMEOUT_MS)
+  let timeout
 
   try {
+    return await withHostCompute(async () => {
+    timeout = setTimeout(() => controller.abort(), OLLAMA_TIMEOUT_MS)
     const res = await fetch(`${OLLAMA_URL}/api/generate`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -102,8 +105,6 @@ async function ollamaGenerate(prompt, { onController } = {}) {
       signal: controller.signal
     })
 
-    clearTimeout(timeout)
-
     if (!res.ok) {
       const t = await res.text().catch(() => '')
       throw new Error(`ollama HTTP ${res.status}: ${t.slice(0, 200)}`)
@@ -111,6 +112,7 @@ async function ollamaGenerate(prompt, { onController } = {}) {
 
     const data = await res.json()
     return data.response
+    }, { signal: controller.signal })
   } catch (err) {
     clearTimeout(timeout)
     if (err.name === 'AbortError') {
@@ -119,6 +121,7 @@ async function ollamaGenerate(prompt, { onController } = {}) {
     }
     throw err
   } finally {
+    clearTimeout(timeout)
     if (typeof onController === 'function') onController(null)
   }
 }
