@@ -13,7 +13,7 @@ function fixture(t) {
 }
 
 test('publication credentials reach only publication; unrelated secrets reach no task', () => {
-  const env = { SUPABASE_SERVICE_ROLE_KEY: 'synthetic-publish', VITE_SUPABASE_URL: 'https://example.test', HF_TOKEN: 'synthetic-source', ADMIN_PASSWORD: 'synthetic-admin', GITHUB_TOKEN: 'synthetic-git', PGPASSWORD: 'synthetic-db', PATH: '/usr/bin' };
+  const env = { 'SUPABASE_SERVICE_ROLE_KEY': '<synthetic-publish>', VITE_SUPABASE_URL: 'https://example.test', HF_TOKEN: '<synthetic-source>', ADMIN_PASSWORD: '<synthetic-admin>', GITHUB_TOKEN: '<synthetic-git>', 'PGPASSWORD': '<synthetic-db>', PATH: '/usr/bin' };
   for (const task of ['source', 'publish', 'classify', 'scrape', 'feed-classifier', 'backup']) {
     const selected = filterTaskEnvironment(env, task);
     assert.equal(selected.SUPABASE_SERVICE_ROLE_KEY, task === 'publish' ? env.SUPABASE_SERVICE_ROLE_KEY : undefined);
@@ -29,7 +29,7 @@ test('task credential files are scoped and inherited explicit settings win', t =
   const f = fixture(t);
   f.write('.env', 'PGUSER=shared\n');
   f.write('.env.local', 'PGUSER=local\n');
-  f.write('secrets/publication.env', 'SUPABASE_SERVICE_ROLE_KEY=synthetic-publication\n');
+  f.write('secrets/publication.env', 'SUPABASE_SERVICE_ROLE_KEY=<synthetic-publication>\n');
   f.write('secrets/apizzamichigan.publish.env', 'PGUSER=pizza-publisher\n');
   f.write('secrets/tacoboutmichigan.publish.env', 'PGUSER=taco-publisher\n');
   for (const [profile, user] of [['apizzamichigan', 'pizza-publisher'], ['tacoboutmichigan', 'taco-publisher']]) {
@@ -43,11 +43,11 @@ test('task credential files are scoped and inherited explicit settings win', t =
 
 test('nonpublishers never open publication secrets; unsafe env files fail closed', t => {
   const f = fixture(t);
-  f.write('secrets/publication.env', 'SUPABASE_SERVICE_ROLE_KEY=synthetic\n');
+  f.write('secrets/publication.env', 'SUPABASE_SERVICE_ROLE_KEY=<synthetic>\n');
   chmodSync(join(f.workspace, 'secrets/publication.env'), 0o644);
   const shared = { workspace: f.workspace, profile: 'food-shared', task: 'backup' };
   assert.deepEqual(loadTaskEnvironment(shared, {}), {});
-  assert.throws(() => loadTaskEnvironment({ ...shared, profile: 'apizzamichigan', task: 'publish' }, {}), /private/);
+  assert.throws(() => loadTaskEnvironment({ ...shared, profile: 'apizzamichigan', task: 'publish' }, {}), /must be a private/);
   symlinkSync(join(f.workspace, 'secrets/publication.env'), join(f.workspace, '.env'));
   assert.throws(() => loadTaskEnvironment(shared, {}));
 });
