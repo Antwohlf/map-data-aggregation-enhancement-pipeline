@@ -55,6 +55,9 @@ jobs:
       - run: npm run test:postgres
         env:
           MAP_PIPELINE_TEST_POSTGRES_ADMIN_URL: postgresql://postgres@127.0.0.1:5432/pizza_enrichment
+      - run: node --test packages/food-runtime/test/website-provenance.integration.test.mjs
+        env:
+          MAP_PIPELINE_TEST_POSTGRES_ADMIN_URL: postgresql://postgres@127.0.0.1:5432/pizza_enrichment
 
   postgres-provision-integration:
     runs-on: ubuntu-24.04
