@@ -12,13 +12,20 @@ bytes, reserving room for the website and human decisions. Exact existing receip
 replays remain available above the threshold. This is a conservative operational
 budget, not a claim about provider billing measurements.
 
-The runner preserves the last successfully published source/mapped/version hash
+The runner preserves the last successfully published mapped/version hash
 per source identity in each city's checkpoint. Unchanged refreshes produce no
 database commands or per-page review files. A→B→A remains a change; a source
 proposal suppressed by a manual override is still recorded. Failed/pending
 commands keep exact idempotency keys until receipt recovery and atomic checkpoint
 completion. Completed city scans wait 24 hours before another full scan. Partial
 scans continue under the existing per-run batch and shared compute limits.
+
+Version ledger v2 compares contract, transform, policy and mapped proposal digests.
+ArcGIS retrieval IDs can be reassigned while stable permit/plan identities and
+website fields remain unchanged. Such raw-only differences do not publish an
+audit pair. Published mapped changes still retain their real source digest.
+Nonempty legacy ledgers fail closed until explicitly migrated; never silently
+interpret old hashes as v2 or clear a ledger and trigger a full publication pass.
 
 The default local budget is 512,000,000 bytes. File replacements and delivery
 records reserve space before publication. Crossing either budget stops the job;
@@ -43,8 +50,11 @@ the allowlisted mapped command, receipt and sanitized review outcomes.
 4. For an existing installation, preserve both checkpoints and all pending
    commands. Seed the new `versions` dictionary from the latest source event per
    source/identity in the verified snapshot using `commandVersion`. Do this only
-   while the writer is paused; never replace a nonempty ledger or use another
-   product's state. A missing ledger is safe but incurs one publication pass.
+   while the writer is paused. A nonempty legacy ledger requires a backed-up,
+   verified migration from latest product database metadata: replace only its
+   version dictionary, set `versionLedgerVersion: 2`, and preserve every pending
+   command, cursor, cycle and source ID. Checkpoint replacement must be atomic.
+   Never use another product's state. A missing ledger incurs a publication pass.
 5. Install the additive guard, verify runtime privileges and exact replay, then
    install the runtime. Above budget, leave ingestion disabled. Resumption needs
    approved storage recovery and a new read-only size check.

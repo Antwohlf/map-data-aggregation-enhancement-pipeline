@@ -1,10 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, readdir, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { runBuiltHere, postgresContract } from './runner.mjs';
 import { parseArguments } from './production.mjs';
+import {commandVersion} from './storage.mjs';
 
 async function setup(t) {
   const workspace = await mkdtemp(join(tmpdir(),'builthere-runner-'));
@@ -109,6 +110,68 @@ test('A to B to A remains deliverable, including two ObjectIDs sharing a source 
   assert.deepEqual(options.calls.at(-1).map(c=>c.payload.address),['B','A']);
   const result=await runBuiltHere({...options,now:()=>new Date(Date.now()+6*86400000)});
   assert.equal(result.sources.detroit.published,2);
+});
+
+test('ArcGIS ObjectID reassignment does not republish unchanged website proposals',async t => {
+  const options=await setup(t); options.maxBatches=2;
+  await runBuiltHere(options);
+  const calls=options.calls.length, files=await readdir(join(options.workspace,'reviews'));
+  options.discover=async()=>[101,102,103];
+  const original=options.acquire;
+  options.acquire=async(source,ids)=>{
+    const result=await original(source,ids.map(id=>id-100));
+    for(const record of result.records)record[source==='detroit'?'ObjectId':'OBJECTID']+=100;
+    return result;
+  };
+  const result=await runBuiltHere({...options,now:()=>new Date(Date.now()+4*86400000)});
+  assert.equal(result.sources.detroit.unchanged,3);
+  assert.equal(result.sources['ann-arbor'].unchanged,3);
+  assert.equal(options.calls.length,calls);
+  assert.deepEqual(await readdir(join(options.workspace,'reviews')),files);
+});
+
+test('publication versions retain policy/transform/contract and mapped changes, excluding raw-only changes',()=>{
+  const metadata={contractVersion:1,transformVersion:1,policyVersion:1,sourceDigest:'a',mappedDigest:'b'};
+  const initial=commandVersion({metadata});
+  assert.equal(commandVersion({metadata:{...metadata,sourceDigest:'different'}}),initial);
+  for(const key of ['contractVersion','transformVersion','policyVersion','mappedDigest'])assert.notEqual(commandVersion({metadata:{...metadata,[key]:'different'}}),initial);
+});
+
+test('legacy nonempty ledgers fail closed without consuming or modifying pending work',async t=>{
+  const options=await setup(t);
+  await assert.rejects(runBuiltHere({...options,afterPublish:()=>{throw new Error('crash');}}),/crash/);
+  const path=join(options.workspace,'detroit-checkpoint.json');
+  const state=JSON.parse(await readFile(path));
+  state.versions={previous:'a'.repeat(64)}; delete state.versionLedgerVersion;
+  await writeFile(path,JSON.stringify(state));
+  const before=await readFile(path,'utf8'),calls=options.calls.length;
+  await assert.rejects(runBuiltHere(options),{code:'BUILTHERE_LEDGER_MIGRATION_REQUIRED'});
+  assert.equal(await readFile(path,'utf8'),before);
+  assert.equal(options.calls.length,calls);
+  // Simulate the explicit metadata-backed migration, preserving pending bytes.
+  const pending=JSON.stringify(state.pending);
+  state.versionLedgerVersion=2;
+  state.versions=Object.fromEntries(state.pending.commands.map(c=>[c.sourceId,commandVersion(c)]));
+  await writeFile(path,JSON.stringify(state));
+  await runBuiltHere({...options,acquire:async(source,ids)=>{assert.notEqual(source,'detroit');return options.acquire(source,ids);}});
+  assert.equal(JSON.stringify(options.calls.at(-2)),JSON.stringify(JSON.parse(pending).commands));
+});
+
+test('mapped proposals hidden by overrides still publish and city identity ledgers remain isolated',async t=>{
+  const options=await setup(t);options.maxBatches=1;
+  options.discover=async()=>[1];
+  let address='A';
+  options.acquire=async source=>({missingIds:[],records:[source==='detroit'?{ObjectId:1,record_id:'shared-id',address}:{OBJECTID:1,PLANNUMBER:'shared-id',ADDRESS:'A'}]});
+  const publish=options.database.publishOfficial;
+  options.database.publishOfficial=async commands=>(await publish(commands)).map(r=>({...r,changed:false}));
+  await runBuiltHere(options);assert.equal(options.calls.length,2);
+  address='B';
+  const next=await runBuiltHere({...options,now:()=>new Date(Date.now()+4*86400000)});
+  assert.equal(next.sources.detroit.published,1);assert.equal(next.sources.detroit.changed,0);
+  assert.equal(next.sources['ann-arbor'].unchanged,1);
+  assert.equal(options.calls.at(-1)[0].payload.address,'B');
+  const repeated=await runBuiltHere({...options,now:()=>new Date(Date.now()+6*86400000)});
+  assert.equal(repeated.sources.detroit.unchanged,1);
 });
 
 test('committed pending commands recover at the database limit; new acquisitions remain stopped',async t => {

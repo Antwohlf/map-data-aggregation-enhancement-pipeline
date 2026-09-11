@@ -4,7 +4,7 @@ import { dirname, isAbsolute, join } from 'node:path';
 import { executeTrustedHostStagesAsync } from '@map-pipeline/executor/trusted-host';
 import { withHostCompute, withHostResource } from '@map-pipeline/executor/host-resource-gate';
 import { discoverArcgisIds, fetchArcgisRecords, arcgisSource } from './arcgis.mjs';
-import { commandVersion, storagePolicy, assertDatabaseBudget, assertWorkspaceBudget } from './storage.mjs';
+import { commandVersion, VERSION_LEDGER_VERSION, storagePolicy, assertDatabaseBudget, assertWorkspaceBudget } from './storage.mjs';
 import { mapDetroitPermit, mapAnnArborPlanCase } from './transforms.mjs';
 
 const SOURCES = ['detroit', 'ann-arbor'];
@@ -39,6 +39,8 @@ async function load(path, source) {
   if (state.versions !== undefined && (!state.versions || Array.isArray(state.versions) || typeof state.versions !== 'object' || Object.values(state.versions).some(v => !/^[a-f0-9]{64}$/.test(v)))) throw new Error('Invalid BuiltHere version ledger');
   if (state.completedAt !== undefined && !Number.isFinite(Date.parse(state.completedAt))) throw new Error('Invalid BuiltHere completion time');
   state.versions ??= {};
+  if (state.versionLedgerVersion !== VERSION_LEDGER_VERSION && (state.versionLedgerVersion !== undefined || Object.keys(state.versions).length)) throw Object.assign(new Error('BuiltHere version ledger migration required'),{code:'BUILTHERE_LEDGER_MIGRATION_REQUIRED'});
+  state.versionLedgerVersion = VERSION_LEDGER_VERSION;
   return state;
 }
 
@@ -81,7 +83,7 @@ export async function runBuiltHere({ workspace, database, batchSize = 100, maxBa
       if (!state?.pending) await budget(0);
       if (!state || state.cursor === state.ids.length) {
         const ids = await compute(() => discover(source,{signal}),{env,signal});
-        state = {schemaVersion:1,source,cycle:randomUUID(),ids:[...ids],cursor:0,pending:null,versions:state?.versions ?? {}};
+        state = {schemaVersion:1,source,cycle:randomUUID(),ids:[...ids],cursor:0,pending:null,versions:state?.versions ?? {},versionLedgerVersion:VERSION_LEDGER_VERSION};
         if (!ids.length) state.completedAt = now().toISOString();
         await saveBounded(path,state);
       }
