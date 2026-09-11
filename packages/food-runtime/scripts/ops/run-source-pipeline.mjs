@@ -7,6 +7,7 @@ import { selectSourcePipelineRegions } from '../lib/source-pipeline-scope.mjs';
 import { sourceAutoLinkArguments } from '../lib/source-auto-link-policy.mjs';
 import { executeTrustedHostStagesAsync } from '@map-pipeline/executor/trusted-host';
 import { withHostCompute } from '@map-pipeline/executor/host-resource-gate';
+import { prepareOvertureDelivery, commitOvertureDelivery, overtureHasBacklog } from '../lib/overture-delivery.mjs';
 import { createFoodSourceStages } from '../lib/food-source-stages.mjs';
 import { summarizeOsmManifest } from '../lib/osm-refresh-summary.mjs';
 import {
@@ -95,6 +96,16 @@ function isProcessAlive(pid) {
   catch (error) { return error.code === 'EPERM'; }
 }
 function releaseLock() { rmSync(LOCK_PATH, { recursive: true, force: true }); }
+function sourceCadence(source) {
+  if (config.entity === 'taco' && source === 'overture_places') {
+    const backlog = regions.some(region => {
+      const output = sourcePipelineOvertureOutputPath(ROOT,region.key,config.entity);
+      return overtureHasBacklog({manifestPath:`${output}.manifest.json`,checkpoint:`${output}.delivery.json`,entity:config.entity,categoryPolicy:config.sources[source].category_policy});
+    });
+    if (backlog) return config.sources[source].resume_cadence_hours || 1;
+  }
+  return config.sources[source].cadence_hours;
+}
 function due(entry, now) { return !entry?.last_success || (now - Date.parse(entry.last_success)) >= entry.cadence_hours * 3600000; }
 function stampReport(source, region, entity, output) {
   const report = sourcePipelineReviewOutputPath(ROOT, source, region, entity);
@@ -191,7 +202,12 @@ function runSourceAcquisition(source, region, output, config, state) {
     if (!categoryPolicy) throw new Error('Overture source requires an exact category_policy');
     const overtureOutput = sourcePipelineOvertureOutputPath(ROOT, region.key, config.entity);
     const overtureManifest = `${overtureOutput}.manifest.json`;
-    run(resolve(ROOT, 'scripts/.fsq-venv/bin/python'), ['scripts/ops/export-overture-tiles.py', '--entity', config.entity, '--category-policy', categoryPolicy, '--bbox', region.bbox.join(','), '--step', String(config.sources.overture_places.tile_step || 1), '--max-tiles', String(config.sources.overture_places.tiles_per_run || 1), '--output', overtureOutput, '--manifest', overtureManifest, '--limit', String(config.limits.candidate_rows_per_source)], { timeout: 1200000 });
+    const acquire = () => run(resolve(ROOT, 'scripts/.fsq-venv/bin/python'), ['scripts/ops/export-overture-tiles.py', '--entity', config.entity, '--category-policy', categoryPolicy, '--bbox', region.bbox.join(','), '--step', String(config.sources.overture_places.tile_step || 1), '--max-tiles', String(config.sources.overture_places.tiles_per_run || 1), '--output', overtureOutput, '--manifest', overtureManifest, '--limit', String(config.limits.candidate_rows_per_source)], { timeout: 1200000 });
+    if (config.entity === 'taco') {
+      const delivery = prepareOvertureDelivery({output:overtureOutput,manifestPath:overtureManifest,checkpoint:`${overtureOutput}.delivery.json`,input:output,entity:config.entity,categoryPolicy,limit:config.limits.candidate_rows_per_source,acquire});
+      return {input:output,overtureDelivery:delivery};
+    }
+    acquire();
     writeFileSync(output, readFileSync(overtureOutput));
   } else if (source === 'wikidata') {
     run(NODE, ['scripts/ops/export-wikidata-source.mjs', '--output', output, '--limit', String(config.sources.wikidata.rows_per_run || 50)], { timeout: 240000 });
@@ -213,7 +229,7 @@ async function runAdapter(source, region, output, config, state) {
         source, input: paths.input, entity: config.entity, scopeConfig: CONFIG_PATH,
         limit: config.limits.candidate_rows_per_source, reviewOutput: paths.report, apply: config.apply,
       }), { timeout: 600000 });
-      return paths;
+      return {...paths,overtureDelivery:inputs.acquire.overtureDelivery};
     },
     review: (_, inputs) => {
       const paths = inputs.match;
@@ -334,12 +350,12 @@ if (options.plan) {
       continue;
     }
     const sourceState = state.sources[source] || {};
-    if (!options.force && !due({ ...sourceConfig, ...sourceState }, now)) {
+    if (!options.force && !due({ ...sourceConfig, ...sourceState, cadence_hours:sourceCadence(source) }, now)) {
       plan.skipped.push({
         source,
         reason: 'cadence_not_due',
         last_success: sourceState.last_success || null,
-        cadence_hours: sourceConfig.cadence_hours,
+        cadence_hours: sourceCadence(source),
       });
       continue;
     }
@@ -353,7 +369,7 @@ if (options.plan) {
       source,
       region: region?.key || null,
       last_success: sourceState.last_success || null,
-      cadence_hours: sourceConfig.cadence_hours,
+      cadence_hours: sourceCadence(source),
       capabilities: sourceConfig.capabilities || [],
     });
     plannedWorkUnits += 1;
@@ -380,7 +396,7 @@ try {
       report.skipped.push({ source, reason: 'disabled' });
       continue;
     }
-    if (!options.force && !due({ ...config.sources[source], ...state.sources[source] }, now)) {
+    if (!options.force && !due({ ...config.sources[source], ...state.sources[source], cadence_hours:sourceCadence(source) }, now)) {
       report.skipped.push({ source, reason: 'cadence_not_due' });
       continue;
     }
@@ -445,7 +461,7 @@ try {
         const startingRegionIndex = Number(sourceState.region_index || 0);
         for (let regionOffset = 0; regionOffset < regionsPerRun; regionOffset += 1) {
           const region = regions[(startingRegionIndex + regionOffset) % regions.length];
-          const output = resolve(ROOT, 'data/source-inputs', `${source}-${region.key}-${now}-${regionOffset}.json`);
+          const output = resolve(ROOT, 'data/source-inputs', `${config.entity === 'taco' ? 'taco-' : ''}${source}-${region.key}-${now}-${regionOffset}.json`);
           mkdirSync(dirname(output), { recursive: true });
           const paths = await runAdapter(source, region, output, { ...config, apply: options.apply }, state);
           report.work_units.push({
@@ -455,6 +471,7 @@ try {
             ...(paths.osmProvenanceRefresh ? { osm_provenance_refresh: paths.osmProvenanceRefresh } : {}),
           });
           processNew(paths.report, source, config, options.apply, options.maxNewPlaces);
+          if (options.apply && paths.overtureDelivery) commitOvertureDelivery(paths.overtureDelivery);
           state.sources[source] = {
             ...(state.sources[source] || {}),
             region_index: (startingRegionIndex + regionOffset + 1) % regions.length,

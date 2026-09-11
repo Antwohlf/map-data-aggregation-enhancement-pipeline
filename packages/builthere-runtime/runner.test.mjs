@@ -11,10 +11,12 @@ async function setup(t) {
   t.after(() => rm(workspace,{recursive:true,force:true}));
   const calls = []; const seen = new Map(); const events = []; const acquired = [];
   const database = {
+    async storageBytes() { return 10_000_000; },
     async publishOfficial(commands) { calls.push(structuredClone(commands)); return commands.map(command => { const key = command.metadata.idempotencyKey; if (seen.has(key)) assert.deepEqual(command,seen.get(key)); else seen.set(key,command); return {status:'applied',projectId:`c${seen.size}`}; }); },
     async pendingTips() { return []; }, async publishTips() { return []; },
   };
   return {workspace,database,calls,seen,events,acquired,batchSize:2,maxBatches:1,
+    now: () => new Date(Date.now() + 2 * 86400000),
     discover:async () => [1,2,3],
     acquire:async (source,ids) => { acquired.push({source,ids}); return {missingIds:[],records:ids.map(id => source === 'detroit' ? {ObjectId:id,record_id:`permit-${id}`,address:'1 Main Street',permit_type:'New',latitude:42,longitude:-83} : {OBJECTID:id,PLANNUMBER:`plan-${id}`,ADDRESS:'1 Main Street',TYPE:'Site plan'})}; },
     compute:async callback => callback(),onEvent:event => events.push(event),
@@ -29,7 +31,7 @@ test('bounded runs cover every source identity, then begin a new cycle using sha
   assert.equal(second.sources.detroit.cursor,3); assert.equal(options.seen.size,6);
   assert.deepEqual(options.acquired.map(x => x.ids),[[1,2],[1,2],[3],[3]]);
   assert.deepEqual([...new Set(options.events.map(e => e.kind))],['source','transform','review','output']);
-  await runBuiltHere(options); assert.equal(options.seen.size,10);
+  await runBuiltHere({...options,now:()=>new Date(Date.now()+4*86400000)}); assert.equal(options.seen.size,6);
   const command = options.calls[0][0]; assert.equal(command.metadata.profile,'builthere-city'); assert.equal(command.metadata.sourceNamespace,'detroit'); assert.match(command.metadata.sourceDigest,/^[a-f0-9]{64}$/);
   assert.equal(Object.hasOwn(command.payload,'verification'),false); assert.equal(Object.hasOwn(command.payload,'city'),false);
 });
@@ -80,4 +82,51 @@ test('production arguments require explicit execution and bounded absolute works
   assert.throws(() => parseArguments(['--workspace','relative','--execute']));
   assert.throws(() => parseArguments(['--workspace',tmpdir(),'--batch-size','251']));
   assert.throws(() => parseArguments(['--workspace',tmpdir(),'--unknown']));
+});
+
+test('daily cadence avoids reacquisition; later scans skip unchanged versions without audit growth',async t => {
+  const options = await setup(t); options.maxBatches=2;
+  await runBuiltHere(options);
+  const acquired=options.acquired.length;
+  const files=await readdir(join(options.workspace,'reviews'));
+  const second=await runBuiltHere(options);
+  assert.equal(second.sources.detroit.reason,'refresh_cadence');
+  assert.equal(options.acquired.length,acquired);
+  const refreshed=await runBuiltHere({...options,now:()=>new Date(Date.now()+4*86400000)});
+  assert.equal(refreshed.sources.detroit.unchanged,3);
+  assert.equal(options.seen.size,6);
+  assert.deepEqual(await readdir(join(options.workspace,'reviews')),files);
+});
+
+test('A to B to A remains deliverable, including two ObjectIDs sharing a source identity in one page',async t => {
+  const options=await setup(t); options.maxBatches=2;
+  options.discover=async source=>source==='detroit'?[2]:[];
+  options.acquire=async()=>({missingIds:[],records:[{ObjectId:2,record_id:'shared',address:'A'}]});
+  await runBuiltHere(options);
+  options.discover=async source=>source==='detroit'?[1,2]:[];
+  options.acquire=async()=>({missingIds:[],records:[{ObjectId:1,record_id:'shared',address:'B'},{ObjectId:2,record_id:'shared',address:'A'}]});
+  await runBuiltHere({...options,now:()=>new Date(Date.now()+4*86400000)});
+  assert.deepEqual(options.calls.at(-1).map(c=>c.payload.address),['B','A']);
+  const result=await runBuiltHere({...options,now:()=>new Date(Date.now()+6*86400000)});
+  assert.equal(result.sources.detroit.published,2);
+});
+
+test('committed pending commands recover at the database limit; new acquisitions remain stopped',async t => {
+  const options=await setup(t); let bytes=10000;
+  options.database.storageBytes=async()=>bytes;
+  await assert.rejects(runBuiltHere({...options,afterPublish:()=>{bytes=450000000;throw new Error('crash');}}),/crash/);
+  await assert.rejects(runBuiltHere(options),{code:'BUILTHERE_STORAGE_BUDGET'}); // next source stops
+  assert.deepEqual(options.calls[0],options.calls[1]);
+  assert.equal(JSON.parse(await readFile(join(options.workspace,'detroit-checkpoint.json'))).cursor,2);
+});
+
+test('unknown/full database or insufficient workspace budget stops before publication',async t => {
+  const options=await setup(t);
+  await assert.rejects(runBuiltHere({...options,policy:{workspaceMaxBytes:1500}}),{code:'BUILTHERE_WORKSPACE_BUDGET'});
+  assert.equal(options.calls.length,0);
+  options.database.storageBytes=async()=>NaN;
+  await assert.rejects(runBuiltHere(options),/Invalid database storage measurement/);
+  options.database.storageBytes=async()=>450000000;
+  await assert.rejects(runBuiltHere(options),{code:'BUILTHERE_STORAGE_BUDGET'});
+  assert.equal(options.calls.length,0);
 });

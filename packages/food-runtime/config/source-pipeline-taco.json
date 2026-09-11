@@ -54,6 +54,7 @@
     "overture_places": {
       "enabled": true,
       "category_policy": "overture-taco-taxonomy-v1",
+      "resume_cadence_hours": 1,
       "cadence_hours": 168,
       "regions_per_run": 1,
       "auto_create": true,
