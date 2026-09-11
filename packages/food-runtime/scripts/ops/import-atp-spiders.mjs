@@ -113,7 +113,8 @@ Options:
   --apply-review-schema Create source_review_queue schema before queue import
   --apply               Write accepted matches to place_sources
   --sample <n>          Printed sample rows per bucket (default 3)
-  --limit <n>           Max rows per spider (default 20000)
+  --limit <n>           Max eligible scoped rows per spider (default 20000);
+                       oversized feeds fail rather than silently truncate
   --scope-config <file> Geographic scope config (defaults by entity)
 
 Without --apply, this only downloads inputs and writes review JSON.
