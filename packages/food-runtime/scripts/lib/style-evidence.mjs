@@ -31,6 +31,22 @@ export const PIZZA_SIGNAL_TERMS = [
   'italian'
 ]
 
+export const TACO_TYPE_EVIDENCE = {
+  'Al Pastor': ['al pastor', 'pastor', 'adobada'],
+  'Carne Asada': ['carne asada', 'asada'],
+  Carnitas: ['carnitas'],
+  Chorizo: ['chorizo'],
+  Pollo: ['pollo', 'chicken'],
+  Barbacoa: ['barbacoa'],
+  Birria: ['birria', 'birrieria', 'quesabirria'],
+  Lengua: ['lengua'],
+  Fish: ['fish taco', 'pescado'],
+  Shrimp: ['shrimp', 'camarones'],
+  'Ground Beef': ['ground beef'],
+  Cabeza: ['cabeza'],
+  Veggie: ['veggie', 'vegetarian'],
+}
+
 export function toEvidenceText(value) {
   if (value === null || value === undefined) return ''
   if (typeof value === 'string') return value
@@ -67,4 +83,30 @@ export function hasStyleEvidence(row, style = row.style) {
 
 export function hasPizzaSignal(row) {
   return hasAnyEvidence(evidenceText(row), PIZZA_SIGNAL_TERMS)
+}
+
+export function hasTacoTypeEvidence(row, type) {
+  if (!type) return true
+  const terms = TACO_TYPE_EVIDENCE[type] || []
+  const text = evidenceText(row)
+  return terms.some(term => new RegExp(`(^|[^a-z])${term.replace(/[^a-z]+/gi, '[^a-z]+')}([^a-z]|$)`, 'i').test(text))
+}
+
+export function hasPriceEvidence(row, price) {
+  if (!price) return true
+  if (!/^\${1,4}$/.test(price)) return false
+  const priceKeys = new Set(['price_hint', 'pricerange', 'price_range', 'price:range'])
+  function explicitPrice(value) {
+    if (typeof value === 'string') {
+      try { return explicitPrice(JSON.parse(value)) } catch { return false }
+    }
+    if (Array.isArray(value)) return value.some(explicitPrice)
+    if (!value || typeof value !== 'object') return false
+    return Object.entries(value).some(([key, item]) =>
+      priceKeys.has(key.toLowerCase()) && typeof item === 'string' && item.trim() === price
+      || typeof item === 'object' && explicitPrice(item))
+  }
+  // A currency symbol in menu text is not a price band, and '$$$' does not
+  // substantiate '$' or '$$'. Do not use the previous canonical/model answer.
+  return [row.osm_tags, row.scrape_notes, row.source_evidence].some(explicitPrice)
 }

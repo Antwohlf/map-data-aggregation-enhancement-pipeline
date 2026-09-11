@@ -13,11 +13,13 @@
  */
 
 import { getQueue } from '../queue.mjs'
+import { pathToFileURL } from 'node:url'
+import { realpathSync } from 'node:fs'
 import pg from 'pg'
 import 'dotenv/config'
 import { withHostCompute } from '@map-pipeline/executor/host-resource-gate'
 import { inferStyleFromName, inferStyleFromBrandWikidata, inferPriceFromChain } from '../../lib/style-inference.mjs'
-import { hasStyleEvidence } from '../../lib/style-evidence.mjs'
+import { hasPriceEvidence, hasStyleEvidence, hasTacoTypeEvidence } from '../../lib/style-evidence.mjs'
 import { PIZZA_STYLES, normalizePizzaStyle } from '../../lib/pizza-style-taxonomy.mjs'
 import { enrichmentEntity, normalizeEnrichmentStyle } from '../../lib/enrichment-entity.mjs'
 import { inferTypeFromName, inferPriceFromChain as inferTacoPrice, isKnownChain as isKnownTacoChain, formatTypesForStorage } from '../../lib/type-inference-tacos.mjs'
@@ -200,7 +202,7 @@ function parseScrapeNotes(scrapeNotes) {
   }
 }
 
-function buildPrompt(row, entity = 'pizza') {
+export function buildPrompt(row, entity = 'pizza') {
   const osmTags = row.osm_tags ? JSON.stringify(pruneOsmTags(row.osm_tags)) : ''
   const sourceEvidence = row.source_evidence?.length
     ? truncateText(JSON.stringify(row.source_evidence), 1800)
@@ -218,11 +220,16 @@ function buildPrompt(row, entity = 'pizza') {
     if (notes.style_hints) scrapeData.style_hints = Array.isArray(notes.style_hints)
       ? notes.style_hints.slice(0, 15).map(hint => truncateText(hint, 120))
       : truncateText(notes.style_hints, 500)
+    if (entity === 'taco' && notes.protein_hints) scrapeData.protein_hints = Array.isArray(notes.protein_hints)
+      ? notes.protein_hints.slice(0, 15).map(hint => truncateText(hint, 120))
+      : truncateText(notes.protein_hints, 500)
     if (notes.price_hint) scrapeData.price_hint = truncateText(notes.price_hint, 120)
     if (notes.menu_url) scrapeData.menu_url = truncateText(notes.menu_url, 300)
 
     // Only include text_excerpt if we have little other signal (keep prompt small)
-    const hasSignal = Boolean(scrapeData.jsonld?.length || scrapeData.style_hints)
+    const hasSignal = entity === 'taco'
+      ? Boolean(scrapeData.protein_hints)
+      : Boolean(scrapeData.jsonld?.length || scrapeData.style_hints)
     if (!hasSignal && notes.text_excerpt) {
       scrapeData.text_excerpt = truncateText(notes.text_excerpt, 1200)
     }
@@ -439,15 +446,20 @@ class LlmClassifier {
       style = null
       styleConfidence = null
     }
+    if (entity === 'taco' && style && !hasTacoTypeEvidence(row, style)) {
+      style = null
+      styleConfidence = null
+    }
+    const supportedPrice = entity === 'taco' && priceRange && !hasPriceEvidence(row, priceRange) ? null : priceRange
 
     // Conservative write: nulls allowed; never write unknown values
     await this.updateCanonicalRow(row.id, entity, {
       style,
-      price_range: priceRange,
+      price_range: supportedPrice,
       style_confidence: style ? styleConfidence : null
     })
 
-    this.queue.complete(job.id, { style, price_range: priceRange, style_confidence: styleConfidence })
+    this.queue.complete(job.id, { style, price_range: supportedPrice, style_confidence: styleConfidence })
     this.stats.completed++
   }
 
@@ -564,6 +576,8 @@ class LlmClassifier {
 }
 
 const args = process.argv.slice(2)
+const isMain = process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href
+if (isMain) {
 if (args.includes('--help') || args.includes('-h')) {
   console.log(`
 Usage:
@@ -595,3 +609,4 @@ worker.run().catch(error => {
   console.error(error)
   process.exitCode = 1
 })
+}

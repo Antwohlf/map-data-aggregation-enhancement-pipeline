@@ -202,7 +202,8 @@ Options:
   --entity <pizza|taco>     Canonical table to compare against (default pizza)
   --input <file>            Sample file: GeoJSON, JSON, JSONL, NDJSON, or CSV
   --max-distance-m <meters> Nearby match radius (default 100)
-  --limit <n>               Maximum source rows to inspect (default 1000)
+  --limit <n>               Maximum source rows to inspect (default 1000);
+                            ATP limits eligible scoped rows and fails on overflow
   --sample <n>              Detail rows to print per bucket (default 20)
   --include-non-pizza       Compare all active records (legacy flag name)
   --closed-only             Process only closed source evidence; skip active rows
@@ -290,7 +291,7 @@ function featureToRow(feature) {
   };
 }
 
-function readRecords(inputPath, limit) {
+function readRecords(inputPath) {
   const absPath = resolve(process.cwd(), inputPath);
   const text = readFileSync(absPath, 'utf8');
   const ext = extname(absPath).toLowerCase();
@@ -311,7 +312,7 @@ function readRecords(inputPath, limit) {
     else throw new Error('JSON input must be an array, GeoJSON, or an object with rows/places/features');
   }
 
-  return rows.slice(0, limit);
+  return rows;
 }
 
 function caseMap(row) {
@@ -900,12 +901,10 @@ function writeReviewOutput(path, { args, config, counts, ambiguous, unmatched })
   writeFileSync(absPath, `${JSON.stringify(payload, null, 2)}\n`);
 }
 
-async function main() {
-  const args = parseArgs(process.argv);
-  const config = SOURCE_CONFIGS[args.source];
-  const tableName = ENTITY_TABLES[args.entity];
-  const scope = loadScopeConfig(args.scopeConfig, args.entity);
-  const rows = readRecords(args.input, args.limit);
+export function prepareSourceCandidates(inputRows, args, scope) {
+  // ATP feeds have no paging cursor. A raw prefix can permanently hide local
+  // restaurants behind foreign/out-of-scope rows on every scheduled refresh.
+  const rows = args.source === 'all_the_places' ? inputRows : inputRows.slice(0, args.limit);
   const normalized = rows.map(row => normalizeSourceRow(row, args.source));
   const usable = normalized.filter(candidate => candidate.name && candidate.lat !== null && candidate.lng !== null);
   const active = args.closedOnly ? [] : usable.filter(candidate => !candidate.is_closed);
@@ -915,6 +914,18 @@ async function main() {
   const candidateMatchesEntity = candidate => isSourceCandidateForEntity(candidate, args.entity);
   const candidates = args.includeNonPizza ? inScope : inScope.filter(candidateMatchesEntity);
   const closedCandidates = args.includeNonPizza ? closedInScope : closedInScope.filter(candidateMatchesEntity);
+  if (args.source === 'all_the_places' && candidates.length + closedCandidates.length > args.limit) {
+    throw new Error(`ATP eligible rows exceed --limit ${args.limit}; refusing an incomplete feed. Increase the bounded limit or narrow --scope-config.`);
+  }
+  return { rows, normalized, usable, active, closed, inScope, closedInScope, candidates, closedCandidates };
+}
+
+async function main() {
+  const args = parseArgs(process.argv);
+  const config = SOURCE_CONFIGS[args.source];
+  const tableName = ENTITY_TABLES[args.entity];
+  const scope = loadScopeConfig(args.scopeConfig, args.entity);
+  const { rows, normalized, usable, active, closed, inScope, closedInScope, candidates, closedCandidates } = prepareSourceCandidates(readRecords(args.input), args, scope);
 
   const client = new pg.Client(dbConfig());
   await client.connect();
