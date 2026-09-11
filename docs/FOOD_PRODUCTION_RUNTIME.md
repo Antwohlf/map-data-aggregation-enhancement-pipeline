@@ -51,13 +51,16 @@ New source/review/output implementations belong in their own adapter packages;
 the food compatibility code is not a universal dependency for BuiltHere.
 BuiltHere has not been cut over by this change.
 
-Taco's inherited Overture source is disabled: its exporter hardcodes the Pizza
-category. The corrected Taco predicate must not turn that into an apparently
-successful Taco ingestion run. OSM, FSQ, and official-website processing retain
-their existing configuration, now with Taco-specific candidate filtering.
-Per the migration decision, a dedicated Taco Overture adapter is deferred to a
-later change; it is not required for this cutover and must remain disabled until
-its Taco-specific acquisition and filtering have been validated.
+Taco's formerly deferred Overture source now uses the dedicated
+`food-source-overture-taco-v1` adapter and `overture-taco-taxonomy-v1` policy.
+It selects Mexican, taco, and Tex-Mex restaurant taxonomy matches rather than
+Pizza's category, and rejects cross-product adapter/manifest identities.
+Its bounded acquisition and delivery were verified on the production host on
+September 11, 2026. The regional scan remains incremental; a successful batch
+does not mean the entire configured geography has been scanned. See
+[Taco Overture delivery](TACO_OVERTURE.md) for checkpoints, retries, cadence,
+and deployment safeguards. OSM, FSQ, and official-website processing retain
+their existing configuration and Taco-specific candidate filtering.
 
 ## Code versus private state
 
