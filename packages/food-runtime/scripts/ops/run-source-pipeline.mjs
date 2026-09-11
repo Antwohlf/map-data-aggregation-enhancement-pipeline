@@ -9,6 +9,7 @@ import { executeTrustedHostStagesAsync } from '@map-pipeline/executor/trusted-ho
 import { withHostCompute } from '@map-pipeline/executor/host-resource-gate';
 import { prepareOvertureDelivery, commitOvertureDelivery, overtureHasBacklog } from '../lib/overture-delivery.mjs';
 import { createFoodSourceStages } from '../lib/food-source-stages.mjs';
+import { fsqAcquisitionArguments, wikidataAcquisitionArguments } from '../lib/source-acquisition-arguments.mjs';
 import { summarizeOsmManifest } from '../lib/osm-refresh-summary.mjs';
 import {
   assertSourcePipelineEntity,
@@ -210,9 +211,9 @@ function runSourceAcquisition(source, region, output, config, state) {
     acquire();
     writeFileSync(output, readFileSync(overtureOutput));
   } else if (source === 'wikidata') {
-    run(NODE, ['scripts/ops/export-wikidata-source.mjs', '--output', output, '--limit', String(config.sources.wikidata.rows_per_run || 50)], { timeout: 240000 });
+    run(NODE, wikidataAcquisitionArguments({ region, output, config }), { timeout: 240000 });
   } else if (source === 'fsq_os_places') {
-    run(resolve(ROOT, 'scripts/.fsq-venv/bin/python'), ['scripts/ops/export-fsq-hf-parquet-sample.py', '--query', '', '--country', 'US', '--max-files', String(config.sources.fsq_os_places.max_files), '--limit', String(config.limits.candidate_rows_per_source), '--output', output], { timeout: 1800000 });
+    run(resolve(ROOT, 'scripts/.fsq-venv/bin/python'), fsqAcquisitionArguments({ region, output, config }), { timeout: 1800000 });
   } else throw new Error(`No adapter for ${source}`);
   return { input: output, osmProvenanceRefresh };
 }
