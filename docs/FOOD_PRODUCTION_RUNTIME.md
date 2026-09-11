@@ -59,8 +59,39 @@ Its bounded acquisition and delivery were verified on the production host on
 September 11, 2026. The regional scan remains incremental; a successful batch
 does not mean the entire configured geography has been scanned. See
 [Taco Overture delivery](TACO_OVERTURE.md) for checkpoints, retries, cadence,
-and deployment safeguards. OSM, FSQ, and official-website processing retain
+and deployment safeguards. OSM and official-website processing retain
 their existing configuration and Taco-specific candidate filtering.
+
+### Resumable FSQ acquisition
+
+The food compatibility exporter filters by product, US country, requested
+state, open status, and valid coordinates **before** the candidate limit.
+Each product/state owns `scripts/.source-cursors/fsq-<entity>-<state>.json` in
+its private workspace. A page scans at most one shard and 1,250,000 rows;
+candidate limits can stop it earlier at an exact row offset. Fully consumed
+Parquet row groups are skipped on resume. This is a local scan, not a claim of
+provider-side geographic filtering.
+
+Hugging Face's converted-Parquet branch is resolved to an immutable commit.
+The ordered pinned file list, product, query, and geography stay bound to the
+cursor until the scan completes. A later release cannot replace an unfinished
+scan. The v2 cache uses pinned-URL hashes and verified download sizes, with a
+512 MiB managed-cache ceiling and a read/download lock shared across products.
+Eviction touches only this new managed cache, not legacy files or review state.
+Real source files remain private and must never enter this public repository.
+
+The exporter durably records a pending page before writing its disposable
+output. Empty pages are successful progress. Matching, review import, and
+configured reviewed-new processing must finish before the runner acknowledges
+that page. Failure replays the same pending rows; downstream writes retain
+their existing idempotency guards. Dry runs do not acknowledge or move the
+cursor. Incomplete scans resume hourly; completed regions wait their configured
+refresh interval even while another region still has work.
+
+Do not delete a cursor to recover a downstream error. Correct the error and
+retry the pending page. A changed product/geography identity or invalid cursor
+fails closed. Python cursor tests cover row and file boundaries, empty pages,
+replay, output failure, cross-product rejection, and completed-region pacing.
 
 ## Code versus private state
 

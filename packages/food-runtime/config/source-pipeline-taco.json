@@ -3,7 +3,7 @@
   "region_scope": "US",
   "operational_regions": ["MI", "NY"],
   "regions": [
-    { "key": "MI", "bbox": [41.6, -90.5, 48.4, -82.1] },
+    { "key": "MI", "bbox": [41.6, -90.5, 48.4, -82.1], "region_codes": ["MI"] },
     { "key": "NY", "bbox": [40.4, -79.8, 45.1, -71.7], "region_codes": ["NY"] }
   ],
   "limits": {
@@ -47,9 +47,11 @@
     "fsq_os_places": {
       "enabled": true,
       "cadence_hours": 168,
+      "resume_cadence_hours": 1,
       "auto_create": true,
       "capabilities": ["discover", "match_existing", "enrich_evidence"],
-      "max_files": 1
+      "max_files": 1,
+      "max_scan_rows": 1250000
     },
     "overture_places": {
       "enabled": true,

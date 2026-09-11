@@ -9,6 +9,7 @@ import { executeTrustedHostStagesAsync } from '@map-pipeline/executor/trusted-ho
 import { withHostCompute } from '@map-pipeline/executor/host-resource-gate';
 import { prepareOvertureDelivery, commitOvertureDelivery, overtureHasBacklog } from '../lib/overture-delivery.mjs';
 import { createFoodSourceStages } from '../lib/food-source-stages.mjs';
+import { fsqAcquisitionArguments, fsqAcknowledgementArguments, fsqCursorPath, wikidataAcquisitionArguments } from '../lib/source-acquisition-arguments.mjs';
 import { summarizeOsmManifest } from '../lib/osm-refresh-summary.mjs';
 import {
   assertSourcePipelineEntity,
@@ -97,6 +98,13 @@ function isProcessAlive(pid) {
 }
 function releaseLock() { rmSync(LOCK_PATH, { recursive: true, force: true }); }
 function sourceCadence(source) {
+  if (source === 'fsq_os_places') {
+    const backlog = regions.some(region => {
+      const cursor = loadJson(fsqCursorPath(ROOT, config.entity, region.key), null);
+      return !cursor?.complete || Boolean(cursor.pending);
+    });
+    if (backlog) return config.sources[source].resume_cadence_hours || 1;
+  }
   if (config.entity === 'taco' && source === 'overture_places') {
     const backlog = regions.some(region => {
       const output = sourcePipelineOvertureOutputPath(ROOT,region.key,config.entity);
@@ -210,9 +218,13 @@ function runSourceAcquisition(source, region, output, config, state) {
     acquire();
     writeFileSync(output, readFileSync(overtureOutput));
   } else if (source === 'wikidata') {
-    run(NODE, ['scripts/ops/export-wikidata-source.mjs', '--output', output, '--limit', String(config.sources.wikidata.rows_per_run || 50)], { timeout: 240000 });
+    run(NODE, wikidataAcquisitionArguments({ region, output, config }), { timeout: 240000 });
   } else if (source === 'fsq_os_places') {
-    run(resolve(ROOT, 'scripts/.fsq-venv/bin/python'), ['scripts/ops/export-fsq-hf-parquet-sample.py', '--query', '', '--country', 'US', '--max-files', String(config.sources.fsq_os_places.max_files), '--limit', String(config.limits.candidate_rows_per_source), '--output', output], { timeout: 1800000 });
+    const cursor = fsqCursorPath(ROOT, config.entity, region.key);
+    run(resolve(ROOT, 'scripts/.fsq-venv/bin/python'), fsqAcquisitionArguments({ region, output, config, cursor }), { timeout: 600000 });
+    const page = loadJson(`${output}.page.json`, null);
+    if (!page || !/^[a-f0-9]{64}$/.test(page.page_id) || page.scope?.entity !== config.entity || page.scope?.region !== region.key) throw new Error('Invalid FSQ page receipt');
+    return {input:output,fsqDelivery:{cursor,pageId:page.page_id,entity:config.entity,region:region.key,scannedRows:page.scanned_rows,next:page.next,cycleComplete:page.cycle_complete}};
   } else throw new Error(`No adapter for ${source}`);
   return { input: output, osmProvenanceRefresh };
 }
@@ -229,7 +241,7 @@ async function runAdapter(source, region, output, config, state) {
         source, input: paths.input, entity: config.entity, scopeConfig: CONFIG_PATH,
         limit: config.limits.candidate_rows_per_source, reviewOutput: paths.report, apply: config.apply,
       }), { timeout: 600000 });
-      return {...paths,overtureDelivery:inputs.acquire.overtureDelivery};
+      return {...paths,overtureDelivery:inputs.acquire.overtureDelivery,fsqDelivery:inputs.acquire.fsqDelivery};
     },
     review: (_, inputs) => {
       const paths = inputs.match;
@@ -469,9 +481,11 @@ try {
             region: region.key,
             report_file: paths.reportFile,
             ...(paths.osmProvenanceRefresh ? { osm_provenance_refresh: paths.osmProvenanceRefresh } : {}),
+            ...(paths.fsqDelivery ? { fsq_page: paths.fsqDelivery } : {}),
           });
           processNew(paths.report, source, config, options.apply, options.maxNewPlaces);
           if (options.apply && paths.overtureDelivery) commitOvertureDelivery(paths.overtureDelivery);
+          if (options.apply && paths.fsqDelivery) run(resolve(ROOT, 'scripts/.fsq-venv/bin/python'), fsqAcknowledgementArguments(paths.fsqDelivery), {timeout:30000});
           state.sources[source] = {
             ...(state.sources[source] || {}),
             region_index: (startingRegionIndex + regionOffset + 1) % regions.length,

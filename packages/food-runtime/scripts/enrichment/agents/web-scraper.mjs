@@ -17,6 +17,7 @@ import * as cheerio from 'cheerio'
 import { chromium } from 'playwright-core'
 import fs from 'node:fs'
 import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import 'dotenv/config'
 import { normalizeWebsiteUrl } from '../../lib/website-url.mjs'
 import { enqueueClassificationHandoff } from '../../lib/classification-handoff.mjs'
@@ -83,7 +84,21 @@ function logCantScrape(entry) {
   }
 }
 
-class WebScraper {
+export function placeLookupQuery(placeType) {
+  const { entity, table } = enrichmentEntity(placeType)
+  // Taco's canonical table deliberately has no menu_data column. Menu
+  // parsing is a Pizza-only slowlane, so keep that optional field out of the
+  // shared Taco lookup while preserving the existing Pizza projection.
+  const columns = ['website_url', 'state', 'style', 'price_range']
+  if (entity === 'pizza') columns.push('menu_data')
+  return `
+      SELECT ${columns.join(', ')}
+      FROM ${table}
+      WHERE google_place_id = $1
+    `
+}
+
+export class WebScraper {
   lastRequeueAt = 0
 
   queueEntityClause() {
@@ -196,28 +211,30 @@ class WebScraper {
     return { requeued: candidates.length, cleaned }
   }
 
-  constructor(workerId, { maxJobs = 0, placeType = null } = {}) {
+  constructor(workerId, { maxJobs = 0, placeType = null, queue = null, pgClient = null } = {}) {
     this.workerId = workerId
     this.maxJobs = maxJobs
     this.placeType = placeType
-    this.queue = getQueue()
-    this.pgClient = null
+    this.queue = queue || getQueue()
+    this.pgClient = pgClient
     this.running = false
     this.currentJob = null
     this.stats = { completed: 0, failed: 0 }
   }
 
   async init() {
-    this.pgClient = new pg.Client({
-      host: 'localhost',
-      database: 'pizza_enrichment',
-      user: process.env.PGUSER || process.env.USER,
-      password: process.env.PGPASSWORD || '',
-      connectionTimeoutMillis: Number.parseInt(process.env.SCRAPE_DB_CONNECT_TIMEOUT_MS || '10000', 10),
-      query_timeout: Number.parseInt(process.env.SCRAPE_DB_QUERY_TIMEOUT_MS || '15000', 10),
-    })
+    if (!this.pgClient) {
+      this.pgClient = new pg.Client({
+        host: 'localhost',
+        database: 'pizza_enrichment',
+        user: process.env.PGUSER || process.env.USER,
+        password: process.env.PGPASSWORD || '',
+        connectionTimeoutMillis: Number.parseInt(process.env.SCRAPE_DB_CONNECT_TIMEOUT_MS || '10000', 10),
+        query_timeout: Number.parseInt(process.env.SCRAPE_DB_QUERY_TIMEOUT_MS || '15000', 10),
+      })
+      await this.pgClient.connect()
+    }
 
-    await this.pgClient.connect()
     this.queue.registerWorker(this.workerId, 'scrape')
   }
 
@@ -466,12 +483,7 @@ class WebScraper {
    */
   async processJob(job) {
     // Get the website URL (and some metadata) from the database
-    const table = enrichmentEntity(job.placeType).table
-    const result = await this.pgClient.query(`
-      SELECT website_url, state, style, price_range, menu_data
-      FROM ${table}
-      WHERE google_place_id = $1
-    `, [job.osmId])
+    const result = await this.pgClient.query(placeLookupQuery(job.placeType), [job.osmId])
 
     if (!result.rows[0]?.website_url) {
       // No website to scrape, skip
@@ -769,10 +781,15 @@ class WebScraper {
   }
 }
 
-// Run
-const args = process.argv.slice(2)
-if (args.includes('--help') || args.includes('-h')) {
-  console.log(`
+// Run only when invoked as a worker. Keeping the entrypoint side effect-free
+// when imported lets focused tests exercise the real scraper methods without
+// opening a production queue or database connection.
+if (process.argv[1]
+  && fs.existsSync(path.resolve(process.argv[1]))
+  && fs.realpathSync(path.resolve(process.argv[1])) === fs.realpathSync(fileURLToPath(import.meta.url))) {
+  const args = process.argv.slice(2)
+  if (args.includes('--help') || args.includes('-h')) {
+    console.log(`
 Usage:
   node scripts/enrichment/agents/web-scraper.mjs [options]
 
@@ -788,18 +805,19 @@ Environment:
   SCRAPE_FETCH_DELAY_MS
   SCRAPE_MAX_RETRIES
 `)
-  process.exit(0)
-}
-const workerIdIdx = args.indexOf('--worker-id')
-const workerId = workerIdIdx >= 0 ? args[workerIdIdx + 1] : `scraper-${Date.now()}`
-const maxJobsIdx = args.indexOf('--max-jobs')
-const maxJobs = maxJobsIdx >= 0 ? parseInt(args[maxJobsIdx + 1], 10) : parseInt(process.env.SCRAPE_MAX_JOBS || '0', 10)
-const placeTypeIdx = args.indexOf('--place-type')
-const placeType = placeTypeIdx >= 0 ? String(args[placeTypeIdx + 1] || '').trim().toLowerCase() : null
-if (placeType !== null && !['pizza', 'taco'].includes(placeType)) throw new Error('Invalid --place-type; use pizza or taco')
+    process.exit(0)
+  }
+  const workerIdIdx = args.indexOf('--worker-id')
+  const workerId = workerIdIdx >= 0 ? args[workerIdIdx + 1] : `scraper-${Date.now()}`
+  const maxJobsIdx = args.indexOf('--max-jobs')
+  const maxJobs = maxJobsIdx >= 0 ? parseInt(args[maxJobsIdx + 1], 10) : parseInt(process.env.SCRAPE_MAX_JOBS || '0', 10)
+  const placeTypeIdx = args.indexOf('--place-type')
+  const placeType = placeTypeIdx >= 0 ? String(args[placeTypeIdx + 1] || '').trim().toLowerCase() : null
+  if (placeType !== null && !['pizza', 'taco'].includes(placeType)) throw new Error('Invalid --place-type; use pizza or taco')
 
-const scraper = new WebScraper(workerId, {
-  maxJobs: Number.isFinite(maxJobs) && maxJobs > 0 ? maxJobs : 0,
-  placeType,
-})
-scraper.run().catch(console.error)
+  const scraper = new WebScraper(workerId, {
+    maxJobs: Number.isFinite(maxJobs) && maxJobs > 0 ? maxJobs : 0,
+    placeType,
+  })
+  scraper.run().catch(console.error)
+}
