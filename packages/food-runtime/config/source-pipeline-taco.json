@@ -47,9 +47,11 @@
     "fsq_os_places": {
       "enabled": true,
       "cadence_hours": 168,
+      "resume_cadence_hours": 1,
       "auto_create": true,
       "capabilities": ["discover", "match_existing", "enrich_evidence"],
-      "max_files": 1
+      "max_files": 1,
+      "max_scan_rows": 1250000
     },
     "overture_places": {
       "enabled": true,

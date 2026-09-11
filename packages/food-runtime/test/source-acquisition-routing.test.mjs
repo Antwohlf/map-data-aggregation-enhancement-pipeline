@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { readFileSync } from 'node:fs';
-import { fsqAcquisitionArguments, wikidataAcquisitionArguments } from '../scripts/lib/source-acquisition-arguments.mjs';
+import { fsqAcquisitionArguments, fsqAcknowledgementArguments, fsqCursorPath, wikidataAcquisitionArguments } from '../scripts/lib/source-acquisition-arguments.mjs';
 import { isWithinScope } from '../scripts/ops/source-input-sample-report.mjs';
 
 const configs = ['source-pipeline.json', 'source-pipeline-taco.json'].map(name => JSON.parse(readFileSync(new URL(`../config/${name}`, import.meta.url), 'utf8')));
@@ -38,5 +38,20 @@ test('Michigan scope rejects known neighboring states within its bounding box fo
 test('production source runner uses the scoped argument builders', () => {
   const runner=readFileSync(new URL('../scripts/ops/run-source-pipeline.mjs',import.meta.url),'utf8');
   assert.match(runner,/run\(NODE, wikidataAcquisitionArguments\(/);
-  assert.match(runner,/fsqAcquisitionArguments\(\{ region, output, config \}\)/);
+  assert.match(runner,/fsqAcquisitionArguments\(\{ region, output, config, cursor \}\)/);
+});
+
+test('FSQ cursor isolation, preview and downstream acknowledgement are explicit', () => {
+  assert.notEqual(fsqCursorPath('state','pizza','MI'),fsqCursorPath('state','taco','MI'));
+  assert.notEqual(fsqCursorPath('state','taco','MI'),fsqCursorPath('state','taco','NY'));
+  assert.throws(()=>fsqCursorPath('state','taco','../MI'),/state code/);
+  const options={region:{key:'MI'},output:'sample.json',config:configs[1],cursor:'cursor.json'};
+  assert(fsqAcquisitionArguments(options).includes('--preview'));
+  assert(!fsqAcquisitionArguments({...options,config:{...options.config,apply:true}}).includes('--preview'));
+  const ack=fsqAcknowledgementArguments({entity:'taco',region:'MI',cursor:'cursor.json',pageId:'expected'});
+  assert.equal(value(ack,'--ack-page'),'expected');
+  assert.equal(value(ack,'--region'),'MI');
+  const runner=readFileSync(new URL('../scripts/ops/run-source-pipeline.mjs',import.meta.url),'utf8');
+  assert.match(runner,/if \(options.apply && paths.fsqDelivery\)/);
+  assert(runner.indexOf('processNew(paths.report') < runner.indexOf('fsqAcknowledgementArguments(paths.fsqDelivery)'));
 });
