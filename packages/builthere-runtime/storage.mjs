@@ -2,12 +2,15 @@ import { createHash } from 'node:crypto';
 import { readdir, lstat } from 'node:fs/promises';
 import { join } from 'node:path';
 
-// Compare the LAST accepted version, not a set of every version ever seen:
-// A -> B -> A is a real update. Review/verification are intentionally excluded.
+export const VERSION_LEDGER_VERSION = 2;
+
+// Compare the LAST accepted website proposal. ArcGIS can reassign ObjectIDs
+// without changing a product field; raw-only changes must not grow website audit.
+// A -> B -> A and proposals hidden by an override remain real mapped changes.
 export function commandVersion(command) {
   const m = command.metadata;
   return createHash('sha256').update(JSON.stringify([
-    m.contractVersion, m.transformVersion, m.policyVersion, m.sourceDigest, m.mappedDigest,
+    m.contractVersion, m.transformVersion, m.policyVersion, m.mappedDigest,
   ])).digest('hex');
 }
 
