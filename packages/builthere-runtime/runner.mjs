@@ -4,6 +4,7 @@ import { dirname, isAbsolute, join } from 'node:path';
 import { executeTrustedHostStagesAsync } from '@map-pipeline/executor/trusted-host';
 import { withHostCompute, withHostResource } from '@map-pipeline/executor/host-resource-gate';
 import { discoverArcgisIds, fetchArcgisRecords, arcgisSource } from './arcgis.mjs';
+import { commandVersion, storagePolicy, assertDatabaseBudget, assertWorkspaceBudget } from './storage.mjs';
 import { mapDetroitPermit, mapAnnArborPlanCase } from './transforms.mjs';
 
 const SOURCES = ['detroit', 'ann-arbor'];
@@ -35,6 +36,9 @@ async function load(path, source) {
   try { state = JSON.parse(await readFile(path, 'utf8')); } catch (error) { if (error.code === 'ENOENT') return null; throw error; }
   if (state.schemaVersion !== 1 || state.source !== source || typeof state.cycle !== 'string' || !Array.isArray(state.ids) || state.ids.some(id => !Number.isSafeInteger(id) || id < 0) || new Set(state.ids).size !== state.ids.length || !Number.isSafeInteger(state.cursor) || state.cursor < 0 || state.cursor > state.ids.length) throw new Error('Invalid BuiltHere checkpoint');
   if (state.pending && (state.pending.start !== state.cursor || !Number.isSafeInteger(state.pending.end) || state.pending.end <= state.cursor || state.pending.end > state.ids.length || !Array.isArray(state.pending.commands) || !Array.isArray(state.pending.quarantine) || !Array.isArray(state.pending.missingIds))) throw new Error('Invalid BuiltHere pending batch');
+  if (state.versions !== undefined && (!state.versions || Array.isArray(state.versions) || typeof state.versions !== 'object' || Object.values(state.versions).some(v => !/^[a-f0-9]{64}$/.test(v)))) throw new Error('Invalid BuiltHere version ledger');
+  if (state.completedAt !== undefined && !Number.isFinite(Date.parse(state.completedAt))) throw new Error('Invalid BuiltHere completion time');
+  state.versions ??= {};
   return state;
 }
 
@@ -50,32 +54,49 @@ export function officialDefinition(source) {
 
 // Only acquisition uses the shared compute slot. Database publication does not
 // block another product's local model or source processing.
-export async function runBuiltHere({ workspace, database, batchSize = 100, maxBatches = 4, tipLimit = 100, env = process.env, signal, discover = discoverArcgisIds, acquire = fetchArcgisRecords, compute = withHostCompute, onEvent, afterPublish } = {}) {
+export async function runBuiltHere({ workspace, database, batchSize = 100, maxBatches = 4, tipLimit = 100, env = process.env, signal, discover = discoverArcgisIds, acquire = fetchArcgisRecords, compute = withHostCompute, onEvent, afterPublish, policy: policyInput, now = () => new Date() } = {}) {
   if (!isAbsolute(workspace || '')) throw new TypeError('BuiltHere workspace must be absolute');
+  const policy = storagePolicy(policyInput);
   bounded(batchSize,250,'batch size'); bounded(maxBatches,1000,'batch count'); bounded(tipLimit,1000,'tip limit');
-  if (!database || typeof database.publishOfficial !== 'function' || typeof database.pendingTips !== 'function' || typeof database.publishTips !== 'function') throw new TypeError('Missing BuiltHere database contract');
+  if (!database || typeof database.publishOfficial !== 'function' || typeof database.pendingTips !== 'function' || typeof database.publishTips !== 'function' || typeof database.storageBytes !== 'function') throw new TypeError('Missing BuiltHere database contract');
   await mkdir(workspace, {recursive:true,mode:0o700});
   await mkdir(join(workspace,'reviews'),{recursive:true,mode:0o700});
   return withHostResource({root:workspace,resource:'builthere-run',signal,waitTimeoutMs:0}, async () => {
     const summary = {schemaVersion:1, sources:{},tips:0};
+    const budget = async count => {
+      await assertWorkspaceBudget(workspace,policy);
+      assertDatabaseBudget(await database.storageBytes(),count,policy);
+    };
+    const saveBounded = async (path,value) => {
+      await assertWorkspaceBudget(workspace,policy,Buffer.byteLength(JSON.stringify(value))*2+4096);
+      await save(path,value);
+    };
     for (const source of SOURCES) {
       const path = join(workspace, `${source}-checkpoint.json`);
       let state = await load(path, source);
+      if (state?.completedAt && now().getTime() - Date.parse(state.completedAt) < policy.refreshHours * 3600000) {
+        summary.sources[source] = {deferred:true,reason:'refresh_cadence',completedAt:state.completedAt};
+        continue;
+      }
+      if (!state?.pending) await budget(0);
       if (!state || state.cursor === state.ids.length) {
         const ids = await compute(() => discover(source,{signal}),{env,signal});
-        state = {schemaVersion:1,source,cycle:randomUUID(),ids:[...ids],cursor:0,pending:null};
-        await save(path,state);
+        state = {schemaVersion:1,source,cycle:randomUUID(),ids:[...ids],cursor:0,pending:null,versions:state?.versions ?? {}};
+        if (!ids.length) state.completedAt = now().toISOString();
+        await saveBounded(path,state);
       }
-      const totals = {published:0,created:0,changed:0,quarantined:0,missing:0,batches:0,cursor:state.cursor,total:state.ids.length};
+      const totals = {unchanged:0,published:0,created:0,changed:0,quarantined:0,missing:0,batches:0,cursor:state.cursor,total:state.ids.length};
       for (let batch = 0; batch < maxBatches && state.cursor < state.ids.length; batch++) {
         signal?.throwIfAborted();
+        const replaying = Boolean(state.pending);
+        if (!replaying) await budget(0);
         const end = state.pending?.end ?? Math.min(state.cursor+batchSize,state.ids.length);
         const definition = officialDefinition(source);
         const registry = [
           {id:definition.stages[0].adapter,version:1,kind:'source',run:() => state.pending ? null : compute(() => acquire(source,state.ids.slice(state.cursor,end),{signal}),{env,signal})},
           {id:definition.stages[1].adapter,version:1,kind:'transform',run:({inputs}) => {
             if (state.pending) return state.pending;
-            const commands = []; const quarantine = [];
+            const commands = []; const quarantine = []; let unchanged = 0; const stagedVersions = {...state.versions};
             for (const raw of inputs.acquire.records) {
               const objectId = raw[arcgisSource(source).objectId];
               let mapped;
@@ -86,31 +107,43 @@ export async function runBuiltHere({ workspace, database, batchSize = 100, maxBa
               const payload = json(business);
               const observationId = `${state.cycle}:${objectId}`;
               const observedAt = new Date().toISOString();
-              commands.push({sourceType:source,sourceId,metadata:{contractVersion:1,transformVersion:1,profile:'builthere-city',sourceNamespace:source,policyVersion:1,observationId,idempotencyKey:`official:${source}:${observationId}`,sourceDigest:digest(raw),mappedDigest:digest(payload),retrievedAt:observedAt,observedAt},payload});
+              const command = {sourceType:source,sourceId,metadata:{contractVersion:1,transformVersion:1,profile:'builthere-city',sourceNamespace:source,policyVersion:1,observationId,idempotencyKey:`official:${source}:${observationId}`,sourceDigest:digest(raw),mappedDigest:digest(payload),retrievedAt:observedAt,observedAt},payload};
+              if (Object.hasOwn(stagedVersions, sourceId) && stagedVersions[sourceId] === commandVersion(command)) unchanged++;
+              else commands.push(command);
+              Object.defineProperty(stagedVersions,sourceId,{value:commandVersion(command),enumerable:true,writable:true,configurable:true});
             }
-            return {start:state.cursor,end,commands,quarantine,missingIds:inputs.acquire.missingIds};
+            return {start:state.cursor,end,commands,quarantine,unchanged,missingIds:inputs.acquire.missingIds};
           }},
           {id:'builthere-official-review-v1',version:1,kind:'review',run:async ({inputs}) => {
             // The SQL contract is the final authority on types and ownership;
             // stage artifacts contain no submitter names, emails or raw tips.
             const pending = inputs.transform;
-            if (!state.pending) { state.pending = pending; await save(path,state); }
+            if (!state.pending) { state.pending = pending; await saveBounded(path,state); }
             return pending;
           }},
           {id:'builthere-project-contract-v1',version:1,kind:'output',run:async ({inputs}) => {
             const pending = inputs.review;
+            // Existing pending commands may already be committed. Let the SQL
+            // replay check answer first; the database trigger blocks any NEW write.
+            if (pending.commands.length && !replaying) await budget(pending.commands.length);
+            await assertWorkspaceBudget(workspace,policy,Buffer.byteLength(JSON.stringify(state))*3 + pending.commands.length*policy.reservePerCommandBytes + 16384);
             const receipts = pending.commands.length ? await database.publishOfficial(pending.commands) : [];
             if (!Array.isArray(receipts) || receipts.length !== pending.commands.length || receipts.some(receipt => !receipt || !['applied','rejected'].includes(receipt.status) || receipt.status === 'applied' && typeof receipt.projectId !== 'string' || receipt.status === 'rejected' && receipt.reason !== 'database_input_invalid')) throw new Error('BuiltHere publication receipt contract failed');
             const rejected = receipts.flatMap((receipt,index) => receipt.status === 'rejected' ? [{observationId:pending.commands[index].metadata.observationId,reason:'database_input_invalid'}] : []);
             await afterPublish?.({source,pending});
             // Preserve review outcomes durably before advancing the source cursor.
-            await save(join(workspace,'reviews',`${source}-${state.cycle}-${pending.start}.json`),{cycle:state.cycle,start:pending.start,end:pending.end,quarantine:[...pending.quarantine,...rejected],missingIds:pending.missingIds});
-            state.cursor = pending.end; state.pending = null; await save(path,state);
-            return {published:receipts.length-rejected.length,created:receipts.filter(r=>r.created===true).length,changed:receipts.filter(r=>r.changed===true).length,quarantined:pending.quarantine.length+rejected.length,missing:pending.missingIds.length};
+            if (pending.commands.length || pending.quarantine.length || pending.missingIds.length) await saveBounded(join(workspace,'reviews',`${source}-${state.cycle}-${pending.start}.json`),{cycle:state.cycle,start:pending.start,end:pending.end,quarantine:[...pending.quarantine,...rejected],missingIds:pending.missingIds,commands:pending.commands,receipts});
+            receipts.forEach((receipt,index) => { if (receipt.status === 'applied') {
+              const command = pending.commands[index];
+              Object.defineProperty(state.versions,command.sourceId,{value:commandVersion(command),enumerable:true,writable:true,configurable:true});
+            }});
+            if (pending.end === state.ids.length) state.completedAt = now().toISOString();
+            state.cursor = pending.end; state.pending = null; await saveBounded(path,state);
+            return {unchanged:pending.unchanged ?? 0,published:receipts.length-rejected.length,created:receipts.filter(r=>r.created===true).length,changed:receipts.filter(r=>r.changed===true).length,quarantined:pending.quarantine.length+rejected.length,missing:pending.missingIds.length};
           }},
         ];
         const result = await executeTrustedHostStagesAsync({definition,registry,onEvent});
-        for (const key of ['published','created','changed','quarantined','missing']) totals[key] += result.outputs.publish[key];
+        for (const key of ['unchanged','published','created','changed','quarantined','missing']) totals[key] += result.outputs.publish[key];
         totals.batches++; totals.cursor = state.cursor;
       }
       summary.sources[source] = totals;
@@ -125,11 +158,11 @@ export async function runBuiltHere({ workspace, database, batchSize = 100, maxBa
       () => database.pendingTips(tipLimit),
       ({inputs}) => inputs.acquire.map(row => { if (typeof row.tip_id !== 'string' || !row.tip_id) throw new Error('Invalid approved tip identity'); return {tipId:row.tip_id,idempotencyKey:`tip:v1:${row.tip_id}`}; }),
       ({inputs}) => inputs.transform,
-      async ({inputs}) => { const receipts = inputs.review.length ? await database.publishTips(inputs.review) : []; if (!Array.isArray(receipts) || receipts.length !== inputs.review.length || receipts.some(r => !r?.projectId)) throw new Error('Invalid community publication receipts'); return receipts.length; },
+      async ({inputs}) => { if (inputs.review.length) await budget(inputs.review.length); const receipts = inputs.review.length ? await database.publishTips(inputs.review) : []; if (!Array.isArray(receipts) || receipts.length !== inputs.review.length || receipts.some(r => !r?.projectId)) throw new Error('Invalid community publication receipts'); return receipts.length; },
     ];
     const tips = await executeTrustedHostStagesAsync({definition:tipDefinition,registry:tipDefinition.stages.map((stage,index) => ({id:stage.adapter,kind:stage.kind,version:1,run:tipRuns[index]})),onEvent});
     summary.tips = tips.outputs.publish;
-    await save(join(workspace,'last-run.json'),{...summary,completedAt:new Date().toISOString()});
+    await saveBounded(join(workspace,'last-run.json'),{...summary,completedAt:new Date().toISOString()});
     return summary;
   });
 }
@@ -140,6 +173,7 @@ export function postgresContract(client) {
     return result.rows.map(row => row.receipt);
   }
   return {
+    storageBytes: async () => Number((await client.query('SELECT pg_database_size(current_database())::text AS bytes')).rows[0].bytes),
     publishOfficial: async commands => {
       try { return await publish('apply_official_v1',commands); }
       catch (error) { if (error.code !== '22023') throw error; }

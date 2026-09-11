@@ -6,6 +6,19 @@ import dotenv from 'dotenv';
 import pg from 'pg';
 import { postgresContract, runBuiltHere } from './runner.mjs';
 
+export async function verifyStorageGuard(client) {
+  const result = await client.query(`SELECT EXISTS (
+    SELECT FROM pg_trigger t JOIN pg_proc p ON p.oid=t.tgfoid
+    JOIN pg_namespace n ON n.oid=p.pronamespace
+    WHERE t.tgrelid='builthere_pipeline.events'::regclass
+    AND t.tgname='source_storage_budget' AND NOT t.tgisinternal
+    AND t.tgenabled IN ('O','A') AND t.tgtype=7
+    AND n.nspname='builthere_pipeline' AND p.proname='guard_source_storage_v1'
+    AND p.prosecdef
+  ) AS installed`);
+  if (result.rows.length !== 1 || result.rows[0].installed !== true) throw Object.assign(new Error('BuiltHere storage guard migration required'),{code:'BUILTHERE_STORAGE_GUARD_MISSING'});
+}
+
 export function createDatabasePool(connectionString, report = event => console.warn(JSON.stringify(event))) {
   // Every contract invocation is one atomic SQL statement. Release its
   // connection while waiting for host admission or fetching a source page.
@@ -50,6 +63,7 @@ export async function main(args = process.argv.slice(2)) {
   const stop = () => controller.abort(new Error('BuiltHere run interrupted'));
   process.once('SIGTERM',stop); process.once('SIGINT',stop);
   try {
+    await verifyStorageGuard(client);
     const privileges = await client.query('SELECT rolsuper,rolcreatedb,rolcreaterole,rolreplication,rolbypassrls FROM pg_roles WHERE rolname=current_user');
     if (privileges.rows.length !== 1 || Object.values(privileges.rows[0]).some(Boolean)) throw new Error('BuiltHere database role exceeds runtime privileges');
     const summary = await runBuiltHere({...options,env,database:postgresContract(client),signal:controller.signal,onEvent:event => console.log(JSON.stringify(event))});
