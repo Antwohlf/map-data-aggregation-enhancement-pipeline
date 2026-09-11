@@ -17,6 +17,7 @@ const ENTITY_CANDIDATE_TERMS = Object.freeze({
     'taco',
     'taqueria',
     'tex mex',
+    'texmex',
   ]),
 });
 

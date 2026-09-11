@@ -45,6 +45,32 @@ test('pizza and taco candidates use separate entity predicates', () => {
   assert.throws(() => isSourceCandidateForEntity(taco, 'burger'), /Unsupported source pipeline entity/);
 });
 
+test('all Taco Overture categories survive normalization without relying on business names', () => {
+  for (const category of ['mexican_restaurant', 'taco_restaurant', 'texmex_restaurant']) {
+    for (const alternate of [false, true]) {
+      const primary = alternate ? 'restaurant' : category;
+      const normalized = normalizeSourceRow({
+        id: 'gers-synthetic-category', name: 'El Camino', lat: 42.3, lng: -83.1,
+        primary_category: primary,
+        taxonomy: {
+          primary, hierarchy: ['food_and_drink', 'restaurant', primary],
+          alternates: alternate ? [category] : [],
+        },
+      }, 'overture_places');
+      assert.equal(isSourceCandidateForEntity(normalized, 'taco'), true, `${category}, alternate=${alternate}`);
+      assert.equal(isSourceCandidateForEntity(normalized, 'pizza'), false);
+    }
+  }
+  for (const category of ['pizza_restaurant', 'latin_american_restaurant', 'restaurant']) {
+    const normalized = normalizeSourceRow({
+      id: 'gers-synthetic-unrelated', name: 'El Camino', lat: 42.3, lng: -83.1,
+      primary_category: category,
+      taxonomy: { primary: category, hierarchy: ['food_and_drink', 'restaurant', category] },
+    }, 'overture_places');
+    assert.equal(isSourceCandidateForEntity(normalized, 'taco'), false, category);
+  }
+});
+
 test('both checked-in configs declare supported, distinct entities and scopes', () => {
   assert.equal(assertSourcePipelineEntity(PIZZA_CONFIG.entity), 'pizza');
   assert.equal(assertSourcePipelineEntity(TACO_CONFIG.entity), 'taco');
