@@ -44,6 +44,9 @@ shadow run can claim record-for-record parity.
 - Haversine distance uses a 6,371,000 metre Earth radius.
 - The ordered, inclusive method thresholds remain 100m identifier; 25m/.99;
   75m/.99; 50m/.60; 100m/.35; and 25m spatial-only.
+  A safety correction shared with the production matcher sends identifier matches
+  with zero name overlap to spatial-only review, including distances up to 100m.
+  Contact reuse must not automatically link a different business.
 - V1 pins the legacy runtime defaults: 100m maximum distance, 0.02-degree
   matching cells, 1-degree prefetch tiles, 100 tiles per simulated batch, and a
   ten-place nearby cutoff. Arbitrary runtime values are rejected before loops

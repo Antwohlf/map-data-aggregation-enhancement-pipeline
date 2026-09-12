@@ -136,7 +136,8 @@ function legacyNaivePrefetchIncludes(
 test("pins every inclusive legacy method boundary", () => {
   const epsilon = Number.EPSILON * 128;
   const cases: Array<[string, number, number, boolean, string]> = [
-    ["identifier at 100m", 100, 0, true, "exact_identifier_nearby"],
+    ["identifier with incompatible name at 100m", 100, 0, true, "spatial_only_review"],
+    ["identifier with compatible name at 100m", 100, 0.5, true, "exact_identifier_nearby"],
     ["identifier beyond 100m", 100 + epsilon, 0, true, "no_match"],
     ["exact name at 25m", 25, 0.99, false, "exact_name_nearby"],
     ["exact name beyond 25m", 25 + epsilon, 0.99, false, "strong_spatial_name"],
@@ -186,7 +187,7 @@ test("pins legacy name, URL, phone, and identifier quirks", () => {
 
 test("golden: every normalized route has an explicit, authority-safe decision", () => {
   const inputs = [
-    candidate(1, { name: "Phone Winner", phone: "3135550001" }),
+    candidate(1, { name: "Unrelated One", phone: "3135550001" }),
     candidate(2, { name: "Strong Two" }),
     candidate(3, { name: "Alpha Beta" }),
     candidate(4, { name: "No Relation" }),
@@ -298,6 +299,30 @@ test("golden: every normalized route has an explicit, authority-safe decision", 
     closedDropped: 2,
     decisions: 10,
   });
+});
+
+test("zero-name phone identity is review-only in the full matcher", () => {
+  const source = candidate(11, {
+    name: "New Burrito Shop",
+    lat: 42,
+    lng: -83,
+    phone: "(313) 555-0118",
+  });
+  const place = canonical("previous-business", {
+    name: "Former Taco Stand",
+    lat: 42,
+    lng: -83 + longitudeOffsetMeters(11.1, 42),
+    phone: "3135550118",
+  });
+  const result = matchApizzaCandidatesV1(
+    [source],
+    { version: 1, rows: [place] },
+    { partition: PARTITION },
+  );
+  assert.equal(result.decisions[0]!.disposition, "ambiguous_review");
+  assert.equal(result.decisions[0]!.best_match?.match_method, "spatial_only_review");
+  assert.equal(result.report.matched_existing_places, 0);
+  assert.equal(result.report.ambiguous_review_candidates, 1);
 });
 
 test("legacy top-ten pruning happens before identifier and method scoring", () => {
