@@ -112,6 +112,14 @@ replay, output failure, cross-product rejection, and completed-region pacing.
 
 ## Code versus private state
 
+Existing public rows receive a new `updated_at` only when an enrichment,
+classification, QA, or explicitly enabled lifecycle value changes. A source
+timestamp difference alone does not cause a write; exact replay is a no-op.
+Insert payloads retain their existing source-timestamp behavior. Explicit
+lifecycle IDs remain eligible when both local lifecycle fields are null, so
+an approved clear can remove stale public lifecycle values. Identity checks
+still run before payload creation, including no-op and lifecycle-only runs.
+
 Install the root lockfile with `npm ci`. Use a separate host-owned directory
 with mode 0700 for `.env`, optional `.env.local`, SQLite queue, source snapshots,
 reports, checkpoints, logs, and Python environment. Never commit that directory.
