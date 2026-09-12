@@ -196,7 +196,8 @@ export function localSyncSelect(options = {}) {
   const params = [];
   const entity = options.entity || 'pizza';
   const valueCols = selector.lifecycleOnly ? LIFECYCLE_COLS : syncColumnsForEntity(LOCAL_SYNC_VALUE_COLS, entity);
-  const filters = [
+  // Explicit lifecycle decisions can intentionally clear both values to null.
+  const filters = selector.lifecycleOnly && selector.ids.length ? [] : [
     `(
             ${valueCols.map(col => `${col} is not null`).join('\n            or ')}
           )`,
@@ -277,6 +278,9 @@ export function buildSupabasePayload(local, current, {
   const payload = { id: local.id };
 
   for (const col of lifecycleOnly ? [] : syncColumnsForEntity(OVERWRITE_COLS, entity)) {
+    // Publication time is metadata, not a reason to publish an unchanged row.
+    // Keep source timestamps available for inserts and other projections.
+    if (col === 'updated_at') continue;
     const value = local[col];
     if (value !== null && value !== undefined && !syncValuesEqual(value, current[col])) {
       payload[col] = value;
@@ -305,7 +309,7 @@ export function buildSupabasePayload(local, current, {
   }
 
   if (Object.keys(payload).length <= 1) return null;
-  if (!('updated_at' in payload)) payload.updated_at = nowIso;
+  payload.updated_at = nowIso;
   return payload;
 }
 
