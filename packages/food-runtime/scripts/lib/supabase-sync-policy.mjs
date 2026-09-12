@@ -1,4 +1,5 @@
 import { SUPABASE_SYNCABLE_TABLES, supabaseSyncProfile } from './supabase-sync-profiles.mjs';
+import { assertSupabasePlaceIdentity } from './supabase-sync-identity.mjs';
 
 const DEFAULT_SYNC_PROFILE = supabaseSyncProfile();
 
@@ -123,7 +124,7 @@ export function syncColumnsForEntity(columns, entity = 'pizza') {
 const LOCAL_SYNC_CHECKPOINT_COL = `to_char(last_enriched_at at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') as sync_checkpoint_last_enriched_at`;
 
 export const SUPABASE_SYNC_SELECT_COLS = [
-  'id',
+  ...LOCAL_CONTEXT_COLS,
   ...OVERWRITE_COLS,
   ...CANONICAL_MIRROR_COLS,
   ...QA_DEFAULT_COLS,
@@ -269,6 +270,9 @@ export function buildSupabasePayload(local, current, {
   entity = 'pizza',
 } = {}) {
   if (!current) return null;
+  // Numeric IDs alone are not a cross-database identity: locally imported
+  // restaurants can collide with places entered directly on the public site.
+  assertSupabasePlaceIdentity(local, current, { entity });
 
   const payload = { id: local.id };
 

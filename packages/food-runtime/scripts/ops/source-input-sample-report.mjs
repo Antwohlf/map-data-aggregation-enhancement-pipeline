@@ -516,6 +516,10 @@ export function sourceIdentifierMatch(candidate, place) {
 }
 
 export function sourceMatchMethod(distanceM, score, identifierMatch = false) {
+  // A matching phone/URL cannot override a completely incompatible name:
+  // reused contact details and same-site replacements otherwise auto-link a
+  // new business to the old canonical record.
+  if (identifierMatch && distanceM <= 100 && score === 0) return 'spatial_only_review';
   if (identifierMatch && distanceM <= 100) return 'exact_identifier_nearby'
   if (distanceM <= 25 && score >= 0.99) return 'exact_name_nearby';
   if (distanceM <= 75 && score >= 0.99) return 'strong_spatial_name';

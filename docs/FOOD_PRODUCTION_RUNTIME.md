@@ -51,6 +51,23 @@ New source/review/output implementations belong in their own adapter packages;
 the food compatibility code is not a universal dependency for BuiltHere.
 BuiltHere has not been cut over by this change.
 
+### Publication identity safety
+
+Local and public numeric IDs are not sufficient proof that two rows describe
+the same restaurant. Before preparing any update (including lifecycle-only
+updates), publication compares stable source identities and geography. A public
+row without a stable identity requires an exact normalized name, compatible
+state, and coordinates within 25 metres. Matching stable IDs still reject
+coordinate conflicts beyond 250 metres. Website and phone are not identity
+evidence because they are enrichment fields that may already be incorrect.
+
+An identity conflict stops the batch before any write or checkpoint advance.
+Do not bypass it or overwrite the website's reviewed identity. Pause publication,
+back up both sides, and resolve the mapping through a separately reviewed repair.
+
+Source matching similarly sends an identifier match with zero name overlap to
+review, rather than automatically linking a replacement business or reused phone.
+
 Taco's formerly deferred Overture source now uses the dedicated
 `food-source-overture-taco-v1` adapter and `overture-taco-taxonomy-v1` policy.
 It selects Mexican, taco, and Tex-Mex restaurant taxonomy matches rather than
