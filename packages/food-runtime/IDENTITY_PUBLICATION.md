@@ -30,3 +30,8 @@ columns and known embedded canonical references transactionally. Queue jobs
 are addressed by `(place_type, osm_id)` and do not need numeric rekeying.
 Keep historical evidence and an old-to-new mapping receipt. Preserve public
 reviews, IDs and photo relationships and compare them exactly after repair.
+
+Configure different `APIZZA_SYNC_LOCK_DIR` values for Pizza and Taco launchd
+jobs (for example `/tmp/apizzamichigan/pizza-supabase-sync.lock` and
+`/tmp/apizzamichigan/taco-supabase-sync.lock`). The legacy wrapper's shared
+fallback can cause one product to skip whenever both schedules start together.
