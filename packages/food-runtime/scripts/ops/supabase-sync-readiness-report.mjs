@@ -26,6 +26,7 @@ import {
   localSyncSelectSql,
 } from '../lib/supabase-sync-policy.mjs';
 import { supabaseSyncProfile } from '../lib/supabase-sync-profiles.mjs';
+import { readPublicationHolds } from '../lib/publication-holds.mjs';
 
 function parseArgs(argv) {
   const out = {
@@ -194,11 +195,13 @@ async function main() {
   await client.connect();
 
   try {
+    const holds = await readPublicationHolds(client, options.entity, options.ids);
     const checkpointAfter = options.reconcile
       ? readIdCheckpoint(options.checkpointPath)
       : readSyncCheckpoint(options.checkpointPath);
     const selector = {
       ...options,
+      publicationHoldIds: holds.ids,
       targetTable: profile.targetTable,
       checkpointMode: Boolean(options.checkpointPath) && !options.reconcile,
       checkpointAfter,
@@ -298,6 +301,7 @@ async function main() {
         checkpointAfter,
       },
       totals: {
+        publicationHolds: holds.ids.length,
         localRows: localRows.length,
         supabaseRows: sbRows?.length || 0,
         wouldUpdate: updates.length,
@@ -307,6 +311,7 @@ async function main() {
         qaDefaults: qaDefaults.length,
       },
       fieldCounts: countBy(changedFields, value => value),
+      publicationHoldSamples: sample(holds.rows, options),
       // Protected-field accounting is not part of the current sync profile.
       // Keep the report sections stable and explicit rather than crashing while
       // rendering fields from the retired accounting path.
@@ -341,6 +346,7 @@ async function main() {
     console.log('## Summary');
     console.log(`- branch/head: \`${result.repo.branch}\` / \`${result.repo.head}\``);
     console.log(`- local rows inspected: ${result.totals.localRows}`);
+    console.log(`- records held for identity review: ${result.totals.publicationHolds}`);
     console.log(`- matching Supabase rows: ${result.totals.supabaseRows}`);
     console.log(`- rows that would update: ${result.totals.wouldUpdate}`);
     console.log(`- missing Supabase rows: ${result.totals.missingSupabaseRows}`);

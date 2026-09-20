@@ -97,6 +97,15 @@ test('actual publisher blocks a mixed-identity batch before HTTP writes or check
     assert.equal(requests.length,0,'Explicit held IDs must fail before contacting the public database');
     await execute(process.execPath, [script,'--entity','pizza','--batch','2','--max-batches','1'], {cwd,env,timeout:20000});
     assert.deepEqual(requests.filter(row=>row.method==='PATCH').map(row=>row.id),['eq.1']);
+    const readiness = fileURLToPath(new URL('../scripts/ops/supabase-sync-readiness-report.mjs', import.meta.url));
+    requests.length = 0;
+    await assert.rejects(execute(process.execPath,[readiness,'--entity','pizza','--ids','2','--json'],{cwd,env,timeout:20000}),/held for review/);
+    assert.equal(requests.length,0);
+    const report=JSON.parse((await execute(process.execPath,[readiness,'--entity','pizza','--batch','2','--json'],{cwd,env,timeout:20000})).stdout);
+    assert.equal(report.totals.publicationHolds,1);
+    assert.equal(report.totals.localRows,1);
+    assert.equal(report.totals.wouldUpdate,1);
+    assert.ok(requests.every(r=>r.method==='GET'));
   } finally {
     await new Promise(resolve => server.close(resolve));
     if (createdSchema) await admin.query(`DROP SCHEMA ${schema} CASCADE`);
