@@ -36,6 +36,7 @@ import {
 } from './lib/supabase-sync-policy.mjs';
 import { supabaseSyncProfile } from './lib/supabase-sync-profiles.mjs';
 import { resolveSupabaseSyncCredentials } from './lib/supabase-sync-credentials.mjs';
+import { readPublicationHolds } from './lib/publication-holds.mjs';
 
 const MAX_SYNC_BATCH_SIZE = 500;
 
@@ -252,6 +253,8 @@ async function main() {
   let totalRowsScanned = 0;
 
   try {
+    const holds = await readPublicationHolds(client, args.entity, args.ids);
+    if (holds.ids.length) console.log(`[sync] ${holds.ids.length} ${args.entity} records held for identity review; see publication_holds`);
     while (true) {
       if (args.maxBatches && batchNum >= args.maxBatches) break;
 
@@ -259,6 +262,7 @@ async function main() {
       // (We still include rows where only style/price are present so we can NULL-fill.)
       const selector = {
         ...args,
+        publicationHoldIds: holds.ids,
         targetTable: profile.targetTable,
         startAfter: cursor,
         checkpointMode: Boolean(args.checkpointPath) && !args.reconcile,

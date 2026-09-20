@@ -56,8 +56,9 @@ test('actual publisher writes once then replays without writes, including explic
         (1,'Example Pizza','test:one',42,-83,'MI','https://example.test/new','2026-01-01','2026-01-01');
       CREATE TABLE taco_places (LIKE pizza_places INCLUDING ALL);
       INSERT INTO taco_places SELECT * FROM pizza_places;
+      CREATE TABLE publication_holds (entity_type text, place_id bigint, reason text, released_at timestamptz);
       GRANT USAGE ON SCHEMA ${schema} TO ${role};
-      GRANT SELECT ON pizza_places,taco_places TO ${role};`);
+      GRANT SELECT ON pizza_places,taco_places,publication_holds TO ${role};`);
     const url = new URL(adminUrl);
     const env = {
       PATH: process.env.PATH,

@@ -233,6 +233,11 @@ export function localSyncSelect(options = {}) {
     filters.push('(style is not null or price is not null or price_range is not null or style_confidence is not null)');
   }
 
+  if (options.publicationHoldIds?.length) {
+    params.push(options.publicationHoldIds);
+    filters.push(`id <> ALL($${params.length}::bigint[])`);
+  }
+
   params.push(selector.batch);
   const limitParam = params.length;
   const orderBy = selector.checkpointMode && !selector.reconcile ? 'last_enriched_at asc, id asc' : 'id asc';

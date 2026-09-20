@@ -56,8 +56,9 @@ test('actual publisher blocks a mixed-identity batch before HTTP writes or check
       ALTER TABLE pizza_places ADD COLUMN lifecycle_status text DEFAULT 'active', ADD COLUMN lifecycle_replaced_by_id bigint;
       CREATE TABLE taco_places (LIKE pizza_places INCLUDING ALL);
       INSERT INTO taco_places SELECT * FROM pizza_places;
+      CREATE TABLE publication_holds (entity_type text, place_id bigint, reason text, released_at timestamptz);
       GRANT USAGE ON SCHEMA ${schema} TO ${role};
-      GRANT SELECT ON pizza_places,taco_places TO ${role};`);
+      GRANT SELECT ON pizza_places,taco_places,publication_holds TO ${role};`);
     const url = new URL(adminUrl);
     const env = {
       PATH: process.env.PATH,
@@ -89,6 +90,13 @@ test('actual publisher blocks a mixed-identity batch before HTTP writes or check
     assert.equal(requests.filter(row => row.method === 'PATCH').length, 2);
     assert.deepEqual(requests.filter(row => row.method === 'PATCH').map(row => row.id).sort(), ['eq.1', 'eq.2']);
     assert.equal(JSON.parse(await readFile(checkpoint, 'utf8')).id, 2);
+    conflict = true;
+    await admin.query("INSERT INTO publication_holds VALUES ('pizza',2,'ambiguous_identity',NULL)");
+    requests.length = 0;
+    await assert.rejects(execute(process.execPath, [script, '--entity','pizza','--ids','2'], {cwd,env,timeout:20000}), /held for review/);
+    assert.equal(requests.length,0,'Explicit held IDs must fail before contacting the public database');
+    await execute(process.execPath, [script,'--entity','pizza','--batch','2','--max-batches','1'], {cwd,env,timeout:20000});
+    assert.deepEqual(requests.filter(row=>row.method==='PATCH').map(row=>row.id),['eq.1']);
   } finally {
     await new Promise(resolve => server.close(resolve));
     if (createdSchema) await admin.query(`DROP SCHEMA ${schema} CASCADE`);

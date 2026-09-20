@@ -11,6 +11,7 @@ import pg from 'pg';
 import { mkdirSync, writeFileSync } from 'fs';
 import { basename, resolve } from 'path';
 import { loadRuntimeEnvironment } from '../lib/runtime-environment.mjs';
+import { allocateNextCanonicalPlaceId } from '../lib/canonical-place-id.mjs';
 
 const ENTITY_TABLES = {
   pizza: 'pizza_places',
@@ -515,12 +516,6 @@ async function existingExternalIdentities(client, entity, rows, payloads) {
 
 function legacyPlaceForPayload(legacyPlaces, payload) {
   return payload.google_place_id ? legacyPlaces.get(payload.google_place_id) || null : null;
-}
-
-async function allocateNextCanonicalPlaceId(client, tableName) {
-  await client.query(`LOCK TABLE ${tableName} IN EXCLUSIVE MODE`);
-  const result = await client.query(`SELECT COALESCE(MAX(id), 0) + 1 AS next_id FROM ${tableName}`);
-  return result.rows[0]?.next_id;
 }
 
 function readiness(payload, duplicateBySourceId, nearbyRows) {
