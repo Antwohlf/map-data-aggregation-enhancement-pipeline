@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
-import { advanceSourceRegionIndex, nextSourceWorkUnitCount, sourceRegionIndexForRun } from '../scripts/lib/source-work-budget.mjs';
+import { advanceSourceRegionIndex, nextSourceWorkUnitCount, selectSourceRegionIndex, sourceRegionIndexForRun } from '../scripts/lib/source-work-budget.mjs';
 
 const runner = fileURLToPath(new URL('../scripts/ops/run-source-pipeline.mjs', import.meta.url));
 const config = fileURLToPath(new URL('../config/source-pipeline-taco.json', import.meta.url));
@@ -61,4 +61,29 @@ test('regional cursor advances past every completed page and rotates only after 
   assert.equal(advanceSourceRegionIndex(0, 2, 3), 2);
   assert.equal(advanceSourceRegionIndex(2, 2, 3), 1);
   assert.throws(() => advanceSourceRegionIndex(0, 0, 3), /Invalid source region cursor state/);
+});
+
+test('OSM failure rotation survives backlog prioritization across consecutive invocations', () => {
+  const backlog = [100, 1]; // MI is persistently broken but has the largest refresh queue.
+  let state = { region_index: 0, consecutive_failures: 0, failure_rotation_pending: false };
+
+  const runAndFail = () => {
+    const selected = selectSourceRegionIndex(
+      state.region_index,
+      state.consecutive_failures,
+      1,
+      backlog,
+      state.failure_rotation_pending,
+    );
+    state = {
+      region_index: (selected + 1) % backlog.length,
+      consecutive_failures: 0,
+      failure_rotation_pending: true,
+    };
+    return selected;
+  };
+
+  assert.equal(runAndFail(), 0, 'first invocation uses the largest backlog');
+  assert.equal(runAndFail(), 1, 'second invocation honors failure rotation over backlog priority');
+  assert.equal(runAndFail(), 0, 'the following invocation can retry the original region');
 });

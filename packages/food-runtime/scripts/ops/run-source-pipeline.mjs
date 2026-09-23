@@ -11,7 +11,7 @@ import { prepareOvertureDelivery, commitOvertureDelivery, overtureHasBacklog } f
 import { createFoodSourceStages } from '../lib/food-source-stages.mjs';
 import { fsqAcquisitionArguments, fsqAcknowledgementArguments, fsqCursorPath, wikidataAcquisitionArguments } from '../lib/source-acquisition-arguments.mjs';
 import { summarizeOsmManifest } from '../lib/osm-refresh-summary.mjs';
-import { advanceSourceRegionIndex, nextSourceWorkUnitCount, sourceRegionIndexForRun } from '../lib/source-work-budget.mjs';
+import { advanceSourceRegionIndex, nextSourceWorkUnitCount, selectSourceRegionIndex, sourceRegionIndexForRun } from '../lib/source-work-budget.mjs';
 import {
   assertSourcePipelineEntity,
   sourceInputSampleReportArguments,
@@ -148,14 +148,15 @@ function osmBacklog(region, osmConfig, entity) {
   }
 }
 
-function selectOsmRegion(regions, osmConfig, entity, cursor = 0) {
-  const scored = regions.map((region, index) => ({
-    region,
-    index,
-    backlog: osmBacklog(region, osmConfig, entity),
-  })).filter(item => item.backlog !== null && item.backlog > 0);
-  if (!scored.length) return regions[Number(cursor || 0) % regions.length];
-  return scored.sort((left, right) => right.backlog - left.backlog || left.index - right.index)[0].region;
+function selectOsmRegion(regions, osmConfig, entity, cursor = 0, consecutiveFailures = 0, failureRotationPending = false) {
+  const selectedIndex = selectSourceRegionIndex(
+    Number(cursor || 0),
+    Number(consecutiveFailures || 0),
+    Number(osmConfig.failure_rotation_threshold || 0),
+    regions.map(region => osmBacklog(region, osmConfig, entity)),
+    failureRotationPending,
+  );
+  return regions[selectedIndex];
 }
 function assertSourceCapabilities(source, sourceConfig, required) {
   const capabilities = sourceConfig?.capabilities || [];
@@ -382,7 +383,7 @@ if (options.plan) {
       regions.length,
     );
     const firstRegion = source === 'osm'
-      ? selectOsmRegion(regions, config.sources.osm, config.entity, regionIndex)
+      ? selectOsmRegion(regions, config.sources.osm, config.entity, storedRegionIndex, Number(sourceState.consecutive_failures || 0), Boolean(sourceState.failure_rotation_pending))
       : regions[regionIndex % regions.length];
     const remainingBudget = options.maxWorkUnits - plannedWorkUnits;
     const requestedUnits = ['official_website', 'all_the_places'].includes(source)
@@ -444,11 +445,12 @@ try {
     if (regionIndex !== storedRegionIndex) {
       sourceState.region_index = regionIndex;
       sourceState.consecutive_failures = 0;
+      sourceState.failure_rotation_pending = true;
       sourceState.last_error = `${sourceState.last_error || 'source failure'}\nRotated to next region before retry after ${rotationThreshold} consecutive failures; prior region remains resumable.`;
       state.sources[source] = sourceState;
     }
     const region = source === 'osm'
-      ? selectOsmRegion(regions, config.sources.osm, config.entity, regionIndex)
+      ? selectOsmRegion(regions, config.sources.osm, config.entity, storedRegionIndex, Number(sourceState.consecutive_failures || 0), Boolean(sourceState.failure_rotation_pending))
       : regions[regionIndex % regions.length];
     try {
       const sourceConfig = config.sources[source];
@@ -523,6 +525,7 @@ try {
         last_success: new Date().toISOString(),
         last_error: null,
         consecutive_failures: 0,
+        failure_rotation_pending: false,
       };
     } catch (error) {
       const message = error?.stack || error?.message || String(error);
@@ -535,9 +538,11 @@ try {
       const failures = Number(state.sources[source].consecutive_failures || 0) + 1;
       const rotationThreshold = Number(config.sources[source]?.failure_rotation_threshold || 0);
       state.sources[source].consecutive_failures = failures;
+      state.sources[source].failure_rotation_pending = false;
       if (rotationThreshold > 0 && failures >= rotationThreshold && regions.length > 1) {
         state.sources[source].region_index = (Number(state.sources[source].region_index || 0) + 1) % regions.length;
         state.sources[source].consecutive_failures = 0;
+        state.sources[source].failure_rotation_pending = true;
         state.sources[source].last_error = `${message.slice(-4500)}\nRotated to next region after ${failures} consecutive failures; prior region remains resumable.`;
       }
     }

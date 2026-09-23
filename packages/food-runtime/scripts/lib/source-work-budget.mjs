@@ -21,6 +21,25 @@ export function sourceRegionIndexForRun(index, consecutiveFailures, failureRotat
   return index % regionCount;
 }
 
+export function selectSourceRegionIndex(index, consecutiveFailures, failureRotationThreshold, backlogByIndex = [], failureRotationPending = false) {
+  const rotatedIndex = sourceRegionIndexForRun(
+    index,
+    consecutiveFailures,
+    failureRotationThreshold,
+    backlogByIndex.length,
+  );
+  const rotationPending = failureRotationPending || (backlogByIndex.length > 1
+    && failureRotationThreshold > 0
+    && consecutiveFailures >= failureRotationThreshold);
+  if (rotationPending) return rotatedIndex;
+
+  const scored = backlogByIndex
+    .map((backlog, regionIndex) => ({ backlog, regionIndex }))
+    .filter(item => item.backlog !== null && item.backlog > 0);
+  if (!scored.length) return rotatedIndex;
+  return scored.sort((left, right) => right.backlog - left.backlog || left.regionIndex - right.regionIndex)[0].regionIndex;
+}
+
 export function advanceSourceRegionIndex(startIndex, completedPages, regionCount) {
   if (!Number.isSafeInteger(startIndex) || startIndex < 0 || !Number.isSafeInteger(completedPages) || completedPages < 1
     || !Number.isSafeInteger(regionCount) || regionCount < 1) {
