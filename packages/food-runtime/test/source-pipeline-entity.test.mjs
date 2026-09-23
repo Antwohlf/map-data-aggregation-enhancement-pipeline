@@ -96,6 +96,11 @@ test('both checked-in configs declare supported, distinct entities and scopes', 
   assert.equal(TACO_CONFIG.sources.overture_places.enabled, true);
   assert.equal(TACO_CONFIG.sources.overture_places.category_policy, 'overture-taco-taxonomy-v1');
   assert.equal(TACO_CONFIG.stageAdapters.overture_places.acquisition, 'food-source-overture-taco-v1');
+  assert.equal(
+    Object.values(TACO_CONFIG.sources).some(source => source.auto_create === true),
+    false,
+    'Taco candidates must stay in the human review queue until a person accepts them',
+  );
 });
 
 test('OSM resumable output identity is entity-specific', () => {

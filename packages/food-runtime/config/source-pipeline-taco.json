@@ -32,7 +32,7 @@
       "enabled": true,
       "cadence_hours": 1,
       "regions_per_run": 1,
-      "auto_create": true,
+      "auto_create": false,
       "capabilities": ["discover", "match_existing", "enrich_evidence"],
       "failure_rotation_threshold": 1,
       "tile_step": 0.25,
@@ -48,7 +48,7 @@
       "enabled": true,
       "cadence_hours": 168,
       "resume_cadence_hours": 1,
-      "auto_create": true,
+      "auto_create": false,
       "capabilities": ["discover", "match_existing", "enrich_evidence"],
       "max_files": 1,
       "max_scan_rows": 1250000
@@ -59,7 +59,7 @@
       "resume_cadence_hours": 1,
       "cadence_hours": 168,
       "regions_per_run": 1,
-      "auto_create": true,
+      "auto_create": false,
       "capabilities": ["discover", "match_existing", "enrich_evidence"],
       "tile_step": 1.0,
       "tiles_per_run": 1
