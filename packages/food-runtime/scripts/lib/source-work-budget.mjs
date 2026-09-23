@@ -8,3 +8,23 @@ export function nextSourceWorkUnitCount(current, maximum) {
   if (current >= maximum) throw new RangeError('Source work-unit budget exceeded');
   return current + 1;
 }
+
+export function sourceRegionIndexForRun(index, consecutiveFailures, failureRotationThreshold, regionCount) {
+  if (!Number.isSafeInteger(index) || index < 0 || !Number.isSafeInteger(consecutiveFailures) || consecutiveFailures < 0
+    || !Number.isSafeInteger(failureRotationThreshold) || failureRotationThreshold < 0
+    || !Number.isSafeInteger(regionCount) || regionCount < 1) {
+    throw new TypeError('Invalid source region rotation state');
+  }
+  if (regionCount > 1 && failureRotationThreshold > 0 && consecutiveFailures >= failureRotationThreshold) {
+    return (index + 1) % regionCount;
+  }
+  return index % regionCount;
+}
+
+export function advanceSourceRegionIndex(startIndex, completedPages, regionCount) {
+  if (!Number.isSafeInteger(startIndex) || startIndex < 0 || !Number.isSafeInteger(completedPages) || completedPages < 1
+    || !Number.isSafeInteger(regionCount) || regionCount < 1) {
+    throw new TypeError('Invalid source region cursor state');
+  }
+  return (startIndex + completedPages) % regionCount;
+}

@@ -37,7 +37,8 @@ the allowlisted mapped command, receipt and sanitized review outcomes.
 ## Operating procedure
 
 1. Keep ingestion paused during storage recovery. Check both PostgreSQL relation
-   sizes and the provider's project/branch usage; storage does not reset monthly.
+   sizes and the provider's project/branch usage. Allocated database contents do
+   not reset monthly, though the provider's storage allowance meter may reset.
 2. Produce a full custom-format `pg_dump` with a client matching the server major
    version, into a private directory outside all Git repositories. Use an
    exported repeatable-read snapshot if recording table fingerprints alongside

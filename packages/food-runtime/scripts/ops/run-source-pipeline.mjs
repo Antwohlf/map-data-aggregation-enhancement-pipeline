@@ -11,7 +11,7 @@ import { prepareOvertureDelivery, commitOvertureDelivery, overtureHasBacklog } f
 import { createFoodSourceStages } from '../lib/food-source-stages.mjs';
 import { fsqAcquisitionArguments, fsqAcknowledgementArguments, fsqCursorPath, wikidataAcquisitionArguments } from '../lib/source-acquisition-arguments.mjs';
 import { summarizeOsmManifest } from '../lib/osm-refresh-summary.mjs';
-import { nextSourceWorkUnitCount } from '../lib/source-work-budget.mjs';
+import { advanceSourceRegionIndex, nextSourceWorkUnitCount, sourceRegionIndexForRun } from '../lib/source-work-budget.mjs';
 import {
   assertSourcePipelineEntity,
   sourceInputSampleReportArguments,
@@ -372,9 +372,15 @@ if (options.plan) {
       });
       continue;
     }
-    const regionIndex = Number.isInteger(Number(sourceState.region_index))
+    const storedRegionIndex = Number.isInteger(Number(sourceState.region_index))
       ? Number(sourceState.region_index)
       : 0;
+    const regionIndex = sourceRegionIndexForRun(
+      storedRegionIndex,
+      Number(sourceState.consecutive_failures || 0),
+      Number(sourceConfig.failure_rotation_threshold || 0),
+      regions.length,
+    );
     const firstRegion = source === 'osm'
       ? selectOsmRegion(regions, config.sources.osm, config.entity, regionIndex)
       : regions[regionIndex % regions.length];
@@ -428,17 +434,19 @@ try {
     // intentionally slower source must not advance the region schedule for
     // every other adapter.
     const rotationThreshold = Number(config.sources[source]?.failure_rotation_threshold || 0);
-    if (rotationThreshold > 0
-      && Number(sourceState.consecutive_failures || 0) >= rotationThreshold
-      && regions.length > 1) {
-      sourceState.region_index = (Number(sourceState.region_index || 0) + 1) % regions.length;
+    const storedRegionIndex = Number(sourceState.region_index || 0);
+    const regionIndex = sourceRegionIndexForRun(
+      storedRegionIndex,
+      Number(sourceState.consecutive_failures || 0),
+      rotationThreshold,
+      regions.length,
+    );
+    if (regionIndex !== storedRegionIndex) {
+      sourceState.region_index = regionIndex;
       sourceState.consecutive_failures = 0;
       sourceState.last_error = `${sourceState.last_error || 'source failure'}\nRotated to next region before retry after ${rotationThreshold} consecutive failures; prior region remains resumable.`;
       state.sources[source] = sourceState;
     }
-    const regionIndex = Number.isInteger(Number(sourceState.region_index))
-      ? Number(sourceState.region_index)
-      : 0;
     const region = source === 'osm'
       ? selectOsmRegion(regions, config.sources.osm, config.entity, regionIndex)
       : regions[regionIndex % regions.length];
@@ -504,7 +512,7 @@ try {
           if (options.apply && paths.fsqDelivery) run(resolve(ROOT, 'scripts/.fsq-venv/bin/python'), fsqAcknowledgementArguments(paths.fsqDelivery), {timeout:30000});
           state.sources[source] = {
             ...(state.sources[source] || {}),
-            region_index: (startingRegionIndex + regionOffset + 1) % regions.length,
+            region_index: advanceSourceRegionIndex(startingRegionIndex, regionOffset + 1, regions.length),
           };
           workUnits = nextSourceWorkUnitCount(workUnits, options.maxWorkUnits);
         }
@@ -516,9 +524,6 @@ try {
         last_error: null,
         consecutive_failures: 0,
       };
-      if (source === 'osm') {
-        state.sources[source].region_index = (regions.findIndex(candidate => candidate.key === region.key) + 1) % regions.length;
-      }
     } catch (error) {
       const message = error?.stack || error?.message || String(error);
       report.errors.push({ source, message });
