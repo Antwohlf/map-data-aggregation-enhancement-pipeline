@@ -36,13 +36,17 @@ flowchart LR
   Sources["Sources<br/>OSM · Foursquare · Overture<br/>Wikidata · websites · ArcGIS"]
   Adapters["Source adapters<br/>network · files · PostgreSQL"]
   Plugins["Plugins<br/>normalize · match · enrich"]
-  Review["Human review<br/>when needed"]
-  Publish["Each product's<br/>database contract"]
+  Pizza["A Pizza Michigan<br/>review · publish"]
+  Taco["TacoBoutMichigan<br/>review · publish"]
+  Built["BuiltHere.city<br/>review · publish"]
 
-  Sources --> Adapters --> Plugins --> Review --> Publish
+  Sources --> Adapters --> Plugins
+  Plugins --> Pizza
+  Plugins --> Taco
+  Plugins --> Built
 ```
 
-Plugins transform the data. Adapters handle network, file, and database access. Some enrichment uses local Ollama models.
+Plugins transform the data. Adapters handle network, file, and database access. Each product handles review and publishes through its own database contract. Some enrichment uses local Ollama models.
 
 ## Execution paths
 
