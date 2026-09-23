@@ -65,25 +65,20 @@ test('regional cursor advances past every completed page and rotates only after 
 
 test('OSM failure rotation survives backlog prioritization across consecutive invocations', () => {
   const backlog = [100, 1]; // MI is persistently broken but has the largest refresh queue.
-  let state = { region_index: 0, consecutive_failures: 0, failure_rotation_pending: false };
+  // An older state may carry a threshold failure that is normalized before
+  // selection. The executor must use that updated cursor, not the old one.
+  const normalizedCursor = sourceRegionIndexForRun(0, 1, 1, backlog.length);
+  const afterPreRunRotation = selectSourceRegionIndex(normalizedCursor, 0, 1, backlog, true);
+  assert.equal(afterPreRunRotation, 1, 'pre-run rotation remains on NY during selection');
 
-  const runAndFail = () => {
-    const selected = selectSourceRegionIndex(
-      state.region_index,
-      state.consecutive_failures,
-      1,
-      backlog,
-      state.failure_rotation_pending,
-    );
-    state = {
-      region_index: (selected + 1) % backlog.length,
-      consecutive_failures: 0,
-      failure_rotation_pending: true,
-    };
-    return selected;
-  };
-
-  assert.equal(runAndFail(), 0, 'first invocation uses the largest backlog');
-  assert.equal(runAndFail(), 1, 'second invocation honors failure rotation over backlog priority');
-  assert.equal(runAndFail(), 0, 'the following invocation can retry the original region');
+  // Backlog can choose a region other than the stored cursor. On failure the
+  // executor advances from that attempted region, then carries the rotation
+  // marker into the next invocation.
+  const storedCursor = 1;
+  const attemptedRegion = selectSourceRegionIndex(storedCursor, 0, 1, backlog);
+  assert.equal(attemptedRegion, 0, 'backlog priority selects MI from a NY cursor');
+  const afterFailedAttempt = advanceSourceRegionIndex(attemptedRegion, 1, backlog.length);
+  const nextInvocation = selectSourceRegionIndex(afterFailedAttempt, 0, 1, backlog, true);
+  assert.equal(nextInvocation, 1, 'next invocation visits NY after MI fails');
+  assert.equal(selectSourceRegionIndex(0, 0, 1, backlog), 0, 'backlog priority can resume after the rotated run succeeds');
 });

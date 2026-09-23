@@ -450,8 +450,9 @@ try {
       state.sources[source] = sourceState;
     }
     const region = source === 'osm'
-      ? selectOsmRegion(regions, config.sources.osm, config.entity, storedRegionIndex, Number(sourceState.consecutive_failures || 0), Boolean(sourceState.failure_rotation_pending))
+      ? selectOsmRegion(regions, config.sources.osm, config.entity, Number(sourceState.region_index || 0), Number(sourceState.consecutive_failures || 0), Boolean(sourceState.failure_rotation_pending))
       : regions[regionIndex % regions.length];
+    let attemptedRegionIndex = Math.max(0, regions.findIndex(candidate => candidate.key === region.key));
     try {
       const sourceConfig = config.sources[source];
       if (!sourceConfig?.capabilities?.includes('enrich_evidence')) {
@@ -498,7 +499,8 @@ try {
           ? selectedRegionIndex
           : Number(sourceState.region_index || 0);
         for (let regionOffset = 0; regionOffset < regionsPerRun; regionOffset += 1) {
-          const region = regions[(startingRegionIndex + regionOffset) % regions.length];
+          attemptedRegionIndex = (startingRegionIndex + regionOffset) % regions.length;
+          const region = regions[attemptedRegionIndex];
           const output = resolve(ROOT, 'data/source-inputs', `${config.entity === 'taco' ? 'taco-' : ''}${source}-${region.key}-${now}-${regionOffset}.json`);
           mkdirSync(dirname(output), { recursive: true });
           const paths = await runAdapter(source, region, output, { ...config, apply: options.apply }, state);
@@ -540,7 +542,7 @@ try {
       state.sources[source].consecutive_failures = failures;
       state.sources[source].failure_rotation_pending = false;
       if (rotationThreshold > 0 && failures >= rotationThreshold && regions.length > 1) {
-        state.sources[source].region_index = (Number(state.sources[source].region_index || 0) + 1) % regions.length;
+        state.sources[source].region_index = advanceSourceRegionIndex(attemptedRegionIndex, 1, regions.length);
         state.sources[source].consecutive_failures = 0;
         state.sources[source].failure_rotation_pending = true;
         state.sources[source].last_error = `${message.slice(-4500)}\nRotated to next region after ${failures} consecutive failures; prior region remains resumable.`;
