@@ -11,6 +11,7 @@ import { prepareOvertureDelivery, commitOvertureDelivery, overtureHasBacklog } f
 import { createFoodSourceStages } from '../lib/food-source-stages.mjs';
 import { fsqAcquisitionArguments, fsqAcknowledgementArguments, fsqCursorPath, wikidataAcquisitionArguments } from '../lib/source-acquisition-arguments.mjs';
 import { summarizeOsmManifest } from '../lib/osm-refresh-summary.mjs';
+import { nextSourceWorkUnitCount } from '../lib/source-work-budget.mjs';
 import {
   assertSourcePipelineEntity,
   sourceInputSampleReportArguments,
@@ -374,17 +375,27 @@ if (options.plan) {
     const regionIndex = Number.isInteger(Number(sourceState.region_index))
       ? Number(sourceState.region_index)
       : 0;
-    const region = source === 'osm'
+    const firstRegion = source === 'osm'
       ? selectOsmRegion(regions, config.sources.osm, config.entity, regionIndex)
       : regions[regionIndex % regions.length];
-    plan.work_units.push({
-      source,
-      region: region?.key || null,
-      last_success: sourceState.last_success || null,
-      cadence_hours: sourceCadence(source),
-      capabilities: sourceConfig.capabilities || [],
-    });
-    plannedWorkUnits += 1;
+    const remainingBudget = options.maxWorkUnits - plannedWorkUnits;
+    const requestedUnits = ['official_website', 'all_the_places'].includes(source)
+      ? 1
+      : Math.max(1, Number(sourceConfig.regions_per_run || 1));
+    const sourceUnits = Math.min(requestedUnits, remainingBudget);
+    const firstIndex = Math.max(0, regions.findIndex(candidate => candidate.key === firstRegion?.key));
+    for (let offset = 0; offset < sourceUnits; offset += 1) {
+      plan.work_units.push({
+        source,
+        region: ['official_website', 'all_the_places'].includes(source)
+          ? firstRegion?.key || null
+          : regions[(firstIndex + offset) % regions.length]?.key || null,
+        last_success: sourceState.last_success || null,
+        cadence_hours: sourceCadence(source),
+        capabilities: sourceConfig.capabilities || [],
+      });
+      plannedWorkUnits += 1;
+    }
   }
   if (options.json) console.log(JSON.stringify(plan, null, 2));
   else {
@@ -445,6 +456,7 @@ try {
           last_success: new Date().toISOString(),
           last_error: null,
         };
+        workUnits = nextSourceWorkUnitCount(workUnits, options.maxWorkUnits);
         continue;
       }
       if (source === 'all_the_places') {
@@ -457,6 +469,7 @@ try {
         for (const spider of result?.selected || []) {
           processNew(resolve(ROOT, 'reports/source-review', `${spider}-review.json`), source, config, options.apply, options.maxNewPlaces);
         }
+        workUnits = nextSourceWorkUnitCount(workUnits, options.maxWorkUnits);
         state.sources[source] = {
           ...(state.sources[source] || {}),
           last_success: new Date().toISOString(),
@@ -470,7 +483,10 @@ try {
           Number(sourceConfig.regions_per_run || 1),
           options.maxWorkUnits - workUnits,
         ));
-        const startingRegionIndex = Number(sourceState.region_index || 0);
+        const selectedRegionIndex = regions.findIndex(candidate => candidate.key === region.key);
+        const startingRegionIndex = source === 'osm' && selectedRegionIndex >= 0
+          ? selectedRegionIndex
+          : Number(sourceState.region_index || 0);
         for (let regionOffset = 0; regionOffset < regionsPerRun; regionOffset += 1) {
           const region = regions[(startingRegionIndex + regionOffset) % regions.length];
           const output = resolve(ROOT, 'data/source-inputs', `${config.entity === 'taco' ? 'taco-' : ''}${source}-${region.key}-${now}-${regionOffset}.json`);
@@ -490,7 +506,7 @@ try {
             ...(state.sources[source] || {}),
             region_index: (startingRegionIndex + regionOffset + 1) % regions.length,
           };
-          workUnits += 1;
+          workUnits = nextSourceWorkUnitCount(workUnits, options.maxWorkUnits);
         }
       }
       state.sources[source] = {
@@ -503,7 +519,6 @@ try {
       if (source === 'osm') {
         state.sources[source].region_index = (regions.findIndex(candidate => candidate.key === region.key) + 1) % regions.length;
       }
-      if (!['official_website', 'osm'].includes(source)) workUnits += 1;
     } catch (error) {
       const message = error?.stack || error?.message || String(error);
       report.errors.push({ source, message });
