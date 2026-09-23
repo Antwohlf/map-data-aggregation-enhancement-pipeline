@@ -11,6 +11,7 @@ import { prepareOvertureDelivery, commitOvertureDelivery, overtureHasBacklog } f
 import { createFoodSourceStages } from '../lib/food-source-stages.mjs';
 import { fsqAcquisitionArguments, fsqAcknowledgementArguments, fsqCursorPath, wikidataAcquisitionArguments } from '../lib/source-acquisition-arguments.mjs';
 import { summarizeOsmManifest } from '../lib/osm-refresh-summary.mjs';
+import { advanceSourceRegionIndex, nextSourceWorkUnitCount, selectSourceRegionIndex, sourceRegionIndexForRun } from '../lib/source-work-budget.mjs';
 import {
   assertSourcePipelineEntity,
   sourceInputSampleReportArguments,
@@ -147,14 +148,15 @@ function osmBacklog(region, osmConfig, entity) {
   }
 }
 
-function selectOsmRegion(regions, osmConfig, entity, cursor = 0) {
-  const scored = regions.map((region, index) => ({
-    region,
-    index,
-    backlog: osmBacklog(region, osmConfig, entity),
-  })).filter(item => item.backlog !== null && item.backlog > 0);
-  if (!scored.length) return regions[Number(cursor || 0) % regions.length];
-  return scored.sort((left, right) => right.backlog - left.backlog || left.index - right.index)[0].region;
+function selectOsmRegion(regions, osmConfig, entity, cursor = 0, consecutiveFailures = 0, failureRotationPending = false) {
+  const selectedIndex = selectSourceRegionIndex(
+    Number(cursor || 0),
+    Number(consecutiveFailures || 0),
+    Number(osmConfig.failure_rotation_threshold || 0),
+    regions.map(region => osmBacklog(region, osmConfig, entity)),
+    failureRotationPending,
+  );
+  return regions[selectedIndex];
 }
 function assertSourceCapabilities(source, sourceConfig, required) {
   const capabilities = sourceConfig?.capabilities || [];
@@ -371,20 +373,36 @@ if (options.plan) {
       });
       continue;
     }
-    const regionIndex = Number.isInteger(Number(sourceState.region_index))
+    const storedRegionIndex = Number.isInteger(Number(sourceState.region_index))
       ? Number(sourceState.region_index)
       : 0;
-    const region = source === 'osm'
-      ? selectOsmRegion(regions, config.sources.osm, config.entity, regionIndex)
+    const regionIndex = sourceRegionIndexForRun(
+      storedRegionIndex,
+      Number(sourceState.consecutive_failures || 0),
+      Number(sourceConfig.failure_rotation_threshold || 0),
+      regions.length,
+    );
+    const firstRegion = source === 'osm'
+      ? selectOsmRegion(regions, config.sources.osm, config.entity, storedRegionIndex, Number(sourceState.consecutive_failures || 0), Boolean(sourceState.failure_rotation_pending))
       : regions[regionIndex % regions.length];
-    plan.work_units.push({
-      source,
-      region: region?.key || null,
-      last_success: sourceState.last_success || null,
-      cadence_hours: sourceCadence(source),
-      capabilities: sourceConfig.capabilities || [],
-    });
-    plannedWorkUnits += 1;
+    const remainingBudget = options.maxWorkUnits - plannedWorkUnits;
+    const requestedUnits = ['official_website', 'all_the_places'].includes(source)
+      ? 1
+      : Math.max(1, Number(sourceConfig.regions_per_run || 1));
+    const sourceUnits = Math.min(requestedUnits, remainingBudget);
+    const firstIndex = Math.max(0, regions.findIndex(candidate => candidate.key === firstRegion?.key));
+    for (let offset = 0; offset < sourceUnits; offset += 1) {
+      plan.work_units.push({
+        source,
+        region: ['official_website', 'all_the_places'].includes(source)
+          ? firstRegion?.key || null
+          : regions[(firstIndex + offset) % regions.length]?.key || null,
+        last_success: sourceState.last_success || null,
+        cadence_hours: sourceCadence(source),
+        capabilities: sourceConfig.capabilities || [],
+      });
+      plannedWorkUnits += 1;
+    }
   }
   if (options.json) console.log(JSON.stringify(plan, null, 2));
   else {
@@ -417,20 +435,24 @@ try {
     // intentionally slower source must not advance the region schedule for
     // every other adapter.
     const rotationThreshold = Number(config.sources[source]?.failure_rotation_threshold || 0);
-    if (rotationThreshold > 0
-      && Number(sourceState.consecutive_failures || 0) >= rotationThreshold
-      && regions.length > 1) {
-      sourceState.region_index = (Number(sourceState.region_index || 0) + 1) % regions.length;
+    const storedRegionIndex = Number(sourceState.region_index || 0);
+    const regionIndex = sourceRegionIndexForRun(
+      storedRegionIndex,
+      Number(sourceState.consecutive_failures || 0),
+      rotationThreshold,
+      regions.length,
+    );
+    if (regionIndex !== storedRegionIndex) {
+      sourceState.region_index = regionIndex;
       sourceState.consecutive_failures = 0;
+      sourceState.failure_rotation_pending = true;
       sourceState.last_error = `${sourceState.last_error || 'source failure'}\nRotated to next region before retry after ${rotationThreshold} consecutive failures; prior region remains resumable.`;
       state.sources[source] = sourceState;
     }
-    const regionIndex = Number.isInteger(Number(sourceState.region_index))
-      ? Number(sourceState.region_index)
-      : 0;
     const region = source === 'osm'
-      ? selectOsmRegion(regions, config.sources.osm, config.entity, regionIndex)
+      ? selectOsmRegion(regions, config.sources.osm, config.entity, Number(sourceState.region_index || 0), Number(sourceState.consecutive_failures || 0), Boolean(sourceState.failure_rotation_pending))
       : regions[regionIndex % regions.length];
+    let attemptedRegionIndex = Math.max(0, regions.findIndex(candidate => candidate.key === region.key));
     try {
       const sourceConfig = config.sources[source];
       if (!sourceConfig?.capabilities?.includes('enrich_evidence')) {
@@ -445,6 +467,7 @@ try {
           last_success: new Date().toISOString(),
           last_error: null,
         };
+        workUnits = nextSourceWorkUnitCount(workUnits, options.maxWorkUnits);
         continue;
       }
       if (source === 'all_the_places') {
@@ -457,6 +480,7 @@ try {
         for (const spider of result?.selected || []) {
           processNew(resolve(ROOT, 'reports/source-review', `${spider}-review.json`), source, config, options.apply, options.maxNewPlaces);
         }
+        workUnits = nextSourceWorkUnitCount(workUnits, options.maxWorkUnits);
         state.sources[source] = {
           ...(state.sources[source] || {}),
           last_success: new Date().toISOString(),
@@ -470,9 +494,13 @@ try {
           Number(sourceConfig.regions_per_run || 1),
           options.maxWorkUnits - workUnits,
         ));
-        const startingRegionIndex = Number(sourceState.region_index || 0);
+        const selectedRegionIndex = regions.findIndex(candidate => candidate.key === region.key);
+        const startingRegionIndex = source === 'osm' && selectedRegionIndex >= 0
+          ? selectedRegionIndex
+          : Number(sourceState.region_index || 0);
         for (let regionOffset = 0; regionOffset < regionsPerRun; regionOffset += 1) {
-          const region = regions[(startingRegionIndex + regionOffset) % regions.length];
+          attemptedRegionIndex = (startingRegionIndex + regionOffset) % regions.length;
+          const region = regions[attemptedRegionIndex];
           const output = resolve(ROOT, 'data/source-inputs', `${config.entity === 'taco' ? 'taco-' : ''}${source}-${region.key}-${now}-${regionOffset}.json`);
           mkdirSync(dirname(output), { recursive: true });
           const paths = await runAdapter(source, region, output, { ...config, apply: options.apply }, state);
@@ -488,9 +516,9 @@ try {
           if (options.apply && paths.fsqDelivery) run(resolve(ROOT, 'scripts/.fsq-venv/bin/python'), fsqAcknowledgementArguments(paths.fsqDelivery), {timeout:30000});
           state.sources[source] = {
             ...(state.sources[source] || {}),
-            region_index: (startingRegionIndex + regionOffset + 1) % regions.length,
+            region_index: advanceSourceRegionIndex(startingRegionIndex, regionOffset + 1, regions.length),
           };
-          workUnits += 1;
+          workUnits = nextSourceWorkUnitCount(workUnits, options.maxWorkUnits);
         }
       }
       state.sources[source] = {
@@ -499,11 +527,8 @@ try {
         last_success: new Date().toISOString(),
         last_error: null,
         consecutive_failures: 0,
+        failure_rotation_pending: false,
       };
-      if (source === 'osm') {
-        state.sources[source].region_index = (regions.findIndex(candidate => candidate.key === region.key) + 1) % regions.length;
-      }
-      if (!['official_website', 'osm'].includes(source)) workUnits += 1;
     } catch (error) {
       const message = error?.stack || error?.message || String(error);
       report.errors.push({ source, message });
@@ -515,9 +540,11 @@ try {
       const failures = Number(state.sources[source].consecutive_failures || 0) + 1;
       const rotationThreshold = Number(config.sources[source]?.failure_rotation_threshold || 0);
       state.sources[source].consecutive_failures = failures;
+      state.sources[source].failure_rotation_pending = false;
       if (rotationThreshold > 0 && failures >= rotationThreshold && regions.length > 1) {
-        state.sources[source].region_index = (Number(state.sources[source].region_index || 0) + 1) % regions.length;
+        state.sources[source].region_index = advanceSourceRegionIndex(attemptedRegionIndex, 1, regions.length);
         state.sources[source].consecutive_failures = 0;
+        state.sources[source].failure_rotation_pending = true;
         state.sources[source].last_error = `${message.slice(-4500)}\nRotated to next region after ${failures} consecutive failures; prior region remains resumable.`;
       }
     }
